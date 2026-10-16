@@ -1,6 +1,6 @@
 
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 
 interface AuthContextValue {
   token: string | null
@@ -39,6 +39,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserName(null)
     setUserId(null)
   }
+
+  // Any 401 from apiFetch() lands here and ends the session everywhere at once,
+  // so a stale/rotated token can't leave the app half-logged-in.
+  useEffect(() => {
+    const onExpired = () => {
+      setToken(null)
+      setUserName(null)
+      setUserId(null)
+    }
+    window.addEventListener('auth:expired', onExpired)
+    return () => window.removeEventListener('auth:expired', onExpired)
+  }, [])
 
   return (
     <AuthContext.Provider value={{ token, userName, userId, login, logout }}>

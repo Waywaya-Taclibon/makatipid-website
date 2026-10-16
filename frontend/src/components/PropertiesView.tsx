@@ -3,13 +3,14 @@ import { useLocation } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { CreatePropertyInput, Property } from '../data/properties'
+import type { CreatePropertyInput, Property, PropertyImage } from '../data/properties'
 import type { Booking } from '../data/rentallog'
-import { fetchProperties, createProperty, updateProperty, deleteProperty, archiveProperty, unarchiveProperty } from '../api/properties'
+import { fetchMyProperties, createProperty, updateProperty, deleteProperty, archiveProperty, unarchiveProperty, fetchProperty, uploadPropertyImages, deletePropertyImage, reorderPropertyImages } from '../api/properties'
 import { fetchLogsByProperty } from '../api/rentallog'
 import { formatBookingDate, getCurrentBooking, getDynamicStatus, getUpcomingBooking } from '../utils/bookingStatus'
 import AddPropertyModal from './AddPropertyModal'
 import EditPropertyModal from './EditPropertyModal'
+import type { PhotoItem } from './PhotoPicker'
 import Swal from 'sweetalert2'
 import { useAuth } from '../context/AuthContext'
 import { cancelSwal } from '../utils/swal'
@@ -58,10 +59,10 @@ export default function PropertiesView() {
   useEffect(() => {
     if (!isActive || properties.length > 0) return
 
-    fetchProperties()
+    fetchMyProperties()
       .then((data) => {
         setProperties(data)
-        const firstOwnedProperty = data.find((p) => p.ownerId === userId) ?? null
+        const firstOwnedProperty = data.find((p) => p.ownerId === userId) ?? data[0] ?? null
         setSelected(firstOwnedProperty)
         setError(null)
       })
@@ -228,9 +229,19 @@ export default function PropertiesView() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
 
-  async function handleAdd(data: CreatePropertyInput) {
+  async function handleAdd(data: CreatePropertyInput, photos: File[]) {
     try {
       const created = await createProperty(data)
+      // Two-step save: the property must exist before photos can attach to it.
+      if (photos.length > 0) {
+        try {
+          created.images = await uploadPropertyImages(created.id, photos)
+        } catch (photoErr) {
+          setError(
+            `Property saved, but photo upload failed: ${photoErr instanceof Error ? photoErr.message : 'unknown error'}. You can add photos from Edit.`
+          )
+        }
+      }
       setProperties((prev) => [...prev, created])
       setSelected(created)
       setShowAddModal(false)
@@ -251,11 +262,46 @@ export default function PropertiesView() {
     }
   }
 
-  async function handleEdit(data: CreatePropertyInput) {
+  async function handleEdit(data: CreatePropertyInput, photos: PhotoItem[]) {
     if (!selected) return
     try {
       const updated = await updateProperty(selected.id, data)
-      updatePropertyInList(updated)
+      // Photo plan vs. what the server currently has.
+      const originalIds = (selected.images ?? []).map((img) => img.id)
+      const keptIds = photos.filter((p) => p.kind === 'saved' && p.image).map((p) => (p.image as PropertyImage).id)
+      const removedIds = originalIds.filter((id) => !keptIds.includes(id))
+      const addedFiles = photos.filter((p) => p.kind === 'new' && p.file).map((p) => p.file as File)
+      const currentIds = new Set((updated.images ?? []).map((img) => img.id))
+      const orderChanged =
+        keptIds.length !== originalIds.length || keptIds.some((id, i) => originalIds[i] !== id)
+      // Uploads first (new ids needed before the final order can be written).
+      let fresh = updated
+      if (addedFiles.length > 0) {
+        await uploadPropertyImages(selected.id, addedFiles)
+      }
+      if (keptIds.length > 0 || addedFiles.length > 0) {
+        // Rebuild the full id sequence in the user's final arrangement.
+        const latest = await fetchProperty(selected.id)
+        // New uploads have no stable key: match them in upload order.
+        const newIds = latest.images
+          .filter((img) => !currentIds.has(img.id))
+          .sort((a, b) => a.id - b.id)
+          .map((img) => img.id)
+        let cursor = 0
+        const fullOrder: number[] = []
+        for (const p of photos) {
+          if (p.kind === 'saved' && p.image) fullOrder.push(p.image.id)
+          else if (p.kind === 'new' && p.file && cursor < newIds.length) fullOrder.push(newIds[cursor++])
+        }
+        if (fullOrder.length > 0 && (orderChanged || addedFiles.length > 0)) {
+          await reorderPropertyImages(selected.id, fullOrder)
+        }
+      }
+      for (const id of removedIds) {
+        await deletePropertyImage(selected.id, id)
+      }
+      fresh = await fetchProperty(selected.id)
+      updatePropertyInList(fresh)
       setShowEditModal(false)
       setError(null)
     } catch (err) {

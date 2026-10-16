@@ -1,6 +1,12 @@
 /** Internet availability on the lot. */
 export type InternetOption = 'INCLUDED' | 'AVAILABLE' | 'NONE'
 
+export interface PropertyImage {
+  id: number
+  url: string
+  sortOrder: number
+}
+
 export interface Property {
   id: number
   lotName: string
@@ -19,6 +25,7 @@ export interface Property {
   petsAllowed: boolean | null
   smokingAllowed: boolean | null
   modificationsAllowed: boolean | null
+  images: PropertyImage[]
 }
 
 /** Fields the user fills in when creating a property; owner/flags come from the server. */

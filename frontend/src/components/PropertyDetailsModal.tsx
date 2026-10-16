@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Property } from '../data/properties'
 
@@ -51,12 +52,14 @@ function RuleRow({ label, positive }: { label: string; positive: boolean | null 
 
 export default function PropertyDetailsModal({ property, onClose, onBook }: PropertyDetailsModalProps) {
   const internet = internetLabel(property.internet)
+  const [galleryIndex, setGalleryIndex] = useState(0)
+  const photos = property.images ?? []
+  const activePhoto = photos.length > 0 ? photos[Math.min(galleryIndex, photos.length - 1)] : null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -73,6 +76,28 @@ export default function PropertyDetailsModal({ property, onClose, onBook }: Prop
         </div>
 
         <p className="text-lg font-semibold text-blue-600 mt-2">{formatPrice(property.price)}</p>
+
+        {activePhoto && (
+          <div className="mt-3">
+            <div className="rounded-xl overflow-hidden border border-slate-200">
+              <img src={activePhoto.url} alt={`${property.lotName} photo ${Math.min(galleryIndex, photos.length - 1) + 1}`} className="w-full h-52 object-cover" />
+            </div>
+            {photos.length > 1 && (
+              <div className="flex gap-2 mt-2">
+                {photos.map((photo, i) => (
+                  <button
+                    key={photo.id}
+                    type="button"
+                    onClick={() => setGalleryIndex(i)}
+                    className={`rounded-lg overflow-hidden border-2 transition-all ${i === Math.min(galleryIndex, photos.length - 1) ? 'border-blue-500' : 'border-transparent opacity-70 hover:opacity-100'}`}
+                  >
+                    <img src={photo.url} alt={`${property.lotName} thumbnail ${i + 1}`} className="w-16 h-12 object-cover" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Availability</p>

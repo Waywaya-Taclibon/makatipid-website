@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
+import Swal from 'sweetalert2'
 import type { Property } from '../data/properties'
 import type { Booking } from '../data/rentallog'
 import { fetchLogsByProperty } from '../api/rentallog'
@@ -72,6 +73,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
   const [backendKeyMode, setBackendKeyMode] = useState<string | null>(null)
   const [intentId, setIntentId] = useState<string | null>(null)
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null)
+  const [qrRevealed, setQrRevealed] = useState(false)
   const [testUrl, setTestUrl] = useState<string | null>(null)
   const [verifying, setVerifying] = useState(false)
   const [existingBookings, setExistingBookings] = useState<Booking[]>([])
@@ -102,16 +104,8 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
     }
   }, [property.id])
 
-  // Close on Escape key press
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !paying) {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose, paying])
+  // NOTE: no Escape-to-close and no backdrop-click-to-close on purpose —
+  // closing mid-payment must be a deliberate tap on the × button.
 
   // Poll the intent while the QR is displayed; auto-confirm on success.
   useEffect(() => {
@@ -122,6 +116,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
         clearInterval(timer)
         stopped = true
         setQrImageUrl(null)
+        setQrRevealed(false)
         setIntentId(null)
         setError('Your session expired while waiting for payment. Log back in and generate a new QR.')
         return
@@ -141,6 +136,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
           // QR expired or the attempt failed — offer a fresh code.
           clearInterval(timer)
           setQrImageUrl(null)
+          setQrRevealed(false)
           setIntentId(null)
           setError('The QR code expired before payment completed. Generate a new one to try again.')
         }
@@ -191,6 +187,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
     setBackendKeyMode(null)
     setIntentId(null)
     setQrImageUrl(null)
+    setQrRevealed(false)
     setTestUrl(null)
     setStep('payment')
   }
@@ -224,11 +221,29 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
         return
       }
       setQrImageUrl(attached.qrImageUrl)
+      setQrRevealed(false)
       setTestUrl(attached.testUrl)
       setPaying(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Payment failed')
       setPaying(false)
+    }
+  }
+
+  async function handleRevealQr() {
+    const result = await Swal.fire({
+      icon: 'warning',
+      iconColor: '#e05d44',
+      title: 'Reveal this QR code?',
+      text: 'Unblurring it lets any e-wallet or bank app scan it, and scanning WILL charge you real money. Only reveal it for proof of concept. Please use the simulate payment if you want to proceed with the payment',
+      showCancelButton: true,
+      confirmButtonText: 'I understand, reveal it',
+      cancelButtonText: 'Keep it blurred',
+      confirmButtonColor: '#e05d44',
+      customClass: { popup: 'rounded-2xl!' },
+    })
+    if (result.isConfirmed) {
+      setQrRevealed(true)
     }
   }
 
@@ -252,11 +267,6 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !paying) {
-          onClose()
-        }
-      }}
     >
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 w-full max-w-md flex flex-col gap-4 relative">
         {/* Header */}
@@ -433,7 +443,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
           </div>
 
           {/* Key-mode indicator: both sides must match or PayMongo can't find the intent. */}
-          <div className="flex items-center gap-2 text-xs">
+          {/* <div className="flex items-center gap-2 text-xs">
             <span className={`font-semibold px-2 py-0.5 rounded-full ${frontendKeyMode() === 'test' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
               Frontend: {frontendKeyMode().toUpperCase()}
             </span>
@@ -446,7 +456,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
               Key mismatch: frontend ({frontendKeyMode()}) and backend ({backendKeyMode}) point at different
               PayMongo environments. Payment will fail — align both keys to TEST and restart both servers.
             </div>
-          )}
+          )} */}
 
           {/* Payment summary */}
           <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex flex-col gap-2 text-xs">
@@ -469,15 +479,36 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
           {qrImageUrl ? (
             <>
               <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3">
-                <span className="font-bold">Do NOT scan this with your real wallet app.</span>{' '}
-                Test QR codes are real and WILL charge you real money. Use the Simulate button below instead — your phone stays in your pocket.
+                <span className="font-bold">This QR is blurred for your safety.</span>{' '}
+                Scanning it with a real wallet app WILL charge you real money. Use the Simulate button below instead — your phone stays in your pocket.
               </div>
               <div className="flex flex-col items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-xl p-4">
-                <img
-                  src={qrImageUrl}
-                  alt="QR Ph payment code (for display only — simulate below instead of scanning)"
-                  className="w-48 h-48 rounded-lg bg-white"
-                />
+                <div className="relative">
+                  <img
+                    src={qrImageUrl}
+                    alt="QR Ph payment code (blurred for safety — simulate below instead of scanning)"
+                    className={`w-48 h-48 rounded-lg bg-white transition-all ${qrRevealed ? '' : 'blur-xl select-none'}`}
+                    draggable={false}
+                  />
+                  {!qrRevealed && (
+                    <button
+                      type="button"
+                      onClick={() => void handleRevealQr()}
+                      className="absolute inset-0 m-auto h-fit w-fit bg-slate-900/80 hover:bg-slate-900 text-white rounded-full px-5 py-2 text-xs font-semibold transition-all"
+                    >
+                      Reveal QR code
+                    </button>
+                  )}
+                </div>
+                {qrRevealed && (
+                  <button
+                    type="button"
+                    onClick={() => setQrRevealed(false)}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                  >
+                    Blur it again
+                  </button>
+                )}
                 <p className="text-xs text-slate-500 text-center">
                   Amount due: {confirmedAmount != null ? formatCentavos(confirmedAmount) : '—'}
                 </p>
@@ -516,6 +547,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                 setStep('details')
                 setError(null)
                 setQrImageUrl(null)
+                setQrRevealed(false)
                 setIntentId(null)
                 setTestUrl(null)
               }}

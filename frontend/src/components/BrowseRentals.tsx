@@ -8,6 +8,7 @@ import { fetchAvailableProperties } from '../api/properties'
 import { useAuth } from '../context/AuthContext'
 import BookRentalModal from './BookRentalModal'
 import PropertyDetailsModal from './PropertyDetailsModal'
+import PhotoCarousel from './PhotoCarousel'
 import { bookedSwal } from '../utils/swal'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -75,18 +76,22 @@ export default function BrowseRentals() {
               <div
                 key={p.id}
                 onClick={() => setSelected(p)}
-                className={`text-left rounded-xl p-3 transition-colors flex justify-between gap-2 cursor-pointer ${
+                className={`text-left rounded-xl transition-colors cursor-pointer overflow-hidden ${
                   selected?.id === p.id
                     ? 'bg-blue-100 border-2 border-blue-400'
                     : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
                 }`}
               >
-                <div>
-                  <p className="font-semibold text-slate-800">{p.lotName}</p>
-                  <p className="text-sm text-slate-500">{p.address}</p>
-                  <p className="text-sm font-semibold text-slate-700">{formatPrice(p.price)}</p>
-                </div>
-                <div className="flex flex-col gap-1 shrink-0">
+                {p.images && p.images.length > 0 && (
+                  <PhotoCarousel images={p.images} alt={`${p.lotName} photo`} imgClassName="h-28" />
+                )}
+                <div className="p-3 flex justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-slate-800">{p.lotName}</p>
+                    <p className="text-sm text-slate-500">{p.address}</p>
+                    <p className="text-sm font-semibold text-slate-700">{formatPrice(p.price)}</p>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={(e) => {
@@ -114,6 +119,7 @@ export default function BrowseRentals() {
                   >
                     Book a Rental
                   </button>
+                </div>
                 </div>
               </div>
             )

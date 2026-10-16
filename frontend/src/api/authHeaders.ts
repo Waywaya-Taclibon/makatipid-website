@@ -16,7 +16,7 @@ export function storedTokenInfo(): {
   try {
     const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
     return {
-      subject: typeof payload.sub === 'string' ? payload.sub : null,
+      subject: typeof payload.sub === 'string' ? payload.sub : typeof payload.sub === 'number' ? String(payload.sub) : null,
       issuedAt: typeof payload.iat === 'number' ? payload.iat : null,
       expiresAt: typeof payload.exp === 'number' ? payload.exp : null,
     }

@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import type { InternetOption } from '../data/properties'
 import type { PropertyFormState } from './propertyForm'
+import LocationPicker from './LocationPicker'
 
 const inputClass = 'border border-slate-300 rounded-lg px-3 py-2 text-sm'
 const checkboxClass = 'flex items-center gap-2 text-sm text-slate-700'
@@ -12,14 +14,27 @@ export default function PropertyFormFields({
   onChange: (next: PropertyFormState) => void
 }) {
   const set = (patch: Partial<PropertyFormState>) => onChange({ ...value, ...patch })
+  const [manualCoords, setManualCoords] = useState(false)
 
   return (
     <>
       <input value={value.lotName} onChange={(e) => set({ lotName: e.target.value })} placeholder="Lot name" required className={inputClass} />
       <input value={value.address} onChange={(e) => set({ address: e.target.value })} placeholder="Complete address" required className={inputClass} />
       <input value={value.price} onChange={(e) => set({ price: e.target.value })} placeholder="Base rent per month (₱)" type="number" min="0" step="any" required className={inputClass} />
-      <input value={value.lat} onChange={(e) => set({ lat: e.target.value })} placeholder="Latitude" type="number" step="any" required className={inputClass} />
-      <input value={value.lng} onChange={(e) => set({ lng: e.target.value })} placeholder="Longitude" type="number" step="any" required className={inputClass} />
+      <LocationPicker lat={value.lat} lng={value.lng} onChange={(lat, lng) => set({ lat, lng })} />
+      <button
+        type="button"
+        onClick={() => setManualCoords((v) => !v)}
+        className="text-xs font-semibold text-slate-500 hover:text-slate-700 self-start"
+      >
+        {manualCoords ? 'Hide manual coordinates' : 'Enter coordinates manually instead'}
+      </button>
+      {manualCoords && (
+        <div className="grid grid-cols-2 gap-2">
+          <input value={value.lat} onChange={(e) => set({ lat: e.target.value })} placeholder="Latitude" type="number" step="any" required className={inputClass} />
+          <input value={value.lng} onChange={(e) => set({ lng: e.target.value })} placeholder="Longitude" type="number" step="any" required className={inputClass} />
+        </div>
+      )}
 
       <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">Available until <span className="font-normal normal-case">(optional)</span></label>
       <input value={value.availableUntil} onChange={(e) => set({ availableUntil: e.target.value })} type="date" className={`${inputClass} -mt-2`} />

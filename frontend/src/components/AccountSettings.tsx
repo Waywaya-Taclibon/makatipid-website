@@ -10,6 +10,8 @@ export default function AccountSettings() {
     name: userName || '',
     email: '',
   })
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [originalEmail, setOriginalEmail] = useState('')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +32,10 @@ export default function AccountSettings() {
             name: data.name || '',
             email: data.email || ''
           })
+          setOriginalEmail(data.email || '')
+        } else if (response.status === 401) {
+          logout()
+          navigate('/login')
         }
       } catch (err) {
         console.error('Failed to load profile:', err)
@@ -37,7 +43,7 @@ export default function AccountSettings() {
     }
 
     fetchProfile()
-  }, [token])
+  }, [token, logout, navigate])
 
   // Submit form updates to the backend
   const handleSubmit = async (e: FormEvent) => {
@@ -53,29 +59,42 @@ export default function AccountSettings() {
     setSuccess(null)
 
     try {
+      const emailChanged = formData.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase()
       const response = await fetch('http://localhost:8080/api/users/me', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, currentPassword: emailChanged ? currentPassword : undefined }),
       })
 
+      if (response.status === 401) {
+        logout()
+        navigate('/login')
+        throw new Error('Session expired. Please log in again.')
+      }
       if (response.status === 403) {
       throw new Error('Session expired or unauthorized. Please log in again.')
       }
 
       if (!response.ok) {
-        throw new Error('Failed to update account details')
+        const body = await response.json().catch(() => null)
+        throw new Error((body && body.message) || 'Failed to update account details')
       }
 
       const updatedUser = await response.json()
-      if (updatedUser.name) {
+      // The server rotates the token on email change: adopt it so this device
+      // stays logged in instead of 401ing on the next request.
+      if (updatedUser.token) {
+        login(updatedUser.token, updatedUser.name, updatedUser.id)
+      } else if (updatedUser.name) {
         login(token, updatedUser.name, updatedUser.id)
       }
+      setOriginalEmail(updatedUser.email || formData.email)
+      setCurrentPassword('')
 
-      setSuccess('Account updated successfully!')
+      setSuccess(emailChanged ? 'Account updated successfully! Your other devices were signed out.' : 'Account updated successfully!')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
@@ -121,6 +140,20 @@ export default function AccountSettings() {
             className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
         </div>
+
+        {formData.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase() && originalEmail !== '' && (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Current Password (required to change email)</label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter your current password"
+              className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3">
