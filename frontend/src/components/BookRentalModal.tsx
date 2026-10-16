@@ -10,7 +10,6 @@ import {
   createBookingIntent,
   createQrPaymentMethod,
   formatCentavos,
-  frontendKeyMode,
   getPaymentStatus,
   QR_EXPIRY_SECONDS,
 } from '../api/payments'
@@ -70,7 +69,6 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
   const [error, setError] = useState<string | null>(null)
   const [step, setStep] = useState<'details' | 'payment'>('details')
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null)
-  const [backendKeyMode, setBackendKeyMode] = useState<string | null>(null)
   const [intentId, setIntentId] = useState<string | null>(null)
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null)
   const [qrRevealed, setQrRevealed] = useState(false)
@@ -184,7 +182,6 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
     // only created server-side after the payment succeeds.
     setError(null)
     setConfirmedAmount(null)
-    setBackendKeyMode(null)
     setIntentId(null)
     setQrImageUrl(null)
     setQrRevealed(false)
@@ -205,7 +202,6 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
       const intent = await createBookingIntent(property.id, startDate, endDate)
       setIntentId(intent.intentId)
       setConfirmedAmount(intent.amountCentavos)
-      setBackendKeyMode(intent.keyMode ?? null)
 
       // 2. Build the QR Payment Method directly with PayMongo (public key).
       const paymentMethodId = await createQrPaymentMethod()
@@ -442,21 +438,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
             Test mode — no real money moves. Scan the QR with any bank or e-wallet app to pay.
           </div>
 
-          {/* Key-mode indicator: both sides must match or PayMongo can't find the intent. */}
-          {/* <div className="flex items-center gap-2 text-xs">
-            <span className={`font-semibold px-2 py-0.5 rounded-full ${frontendKeyMode() === 'test' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              Frontend: {frontendKeyMode().toUpperCase()}
-            </span>
-            <span className={`font-semibold px-2 py-0.5 rounded-full ${backendKeyMode === null ? 'bg-slate-100 text-slate-500' : backendKeyMode === 'test' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              Backend: {backendKeyMode === null ? '…' : backendKeyMode.toUpperCase()}
-            </span>
-          </div>
-          {backendKeyMode !== null && backendKeyMode !== frontendKeyMode() && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3">
-              Key mismatch: frontend ({frontendKeyMode()}) and backend ({backendKeyMode}) point at different
-              PayMongo environments. Payment will fail — align both keys to TEST and restart both servers.
-            </div>
-          )} */}
+          {/* Key-mode indicator removed: test-only diagnostics, hidden from renters. */}
 
           {/* Payment summary */}
           <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex flex-col gap-2 text-xs">
