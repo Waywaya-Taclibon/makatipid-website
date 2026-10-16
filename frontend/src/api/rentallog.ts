@@ -1,8 +1,9 @@
 import { authHeaders } from './authHeaders'
+import { API_BASE } from './http'
 import type { Booking } from '../data/rentallog'
 
 export async function fetchMyBookings(): Promise<Booking[]> {
-  const response = await fetch('http://localhost:8080/api/rentallog/my', {
+  const response = await fetch(`${API_BASE}/rentallog/my`, {
     headers: authHeaders(),
   })
   if (response.status === 401 || response.status === 403) {
@@ -15,7 +16,7 @@ export async function fetchMyBookings(): Promise<Booking[]> {
 }
 
 export async function cancelBooking(id: number): Promise<void> {
-  const response = await fetch(`http://localhost:8080/api/rentallog/${id}`, {
+  const response = await fetch(`${API_BASE}/rentallog/${id}`, {
     method: 'DELETE',
     headers: authHeaders(),
   })
@@ -32,7 +33,7 @@ export async function cancelBooking(id: number): Promise<void> {
 }
 
 export async function fetchLogsByProperty(propertyId: number): Promise<Booking[]> {
-  const response = await fetch(`http://localhost:8080/api/rentallog/property/${propertyId}`, {
+  const response = await fetch(`${API_BASE}/rentallog/property/${propertyId}`, {
     headers: authHeaders(),
   })
   if (response.status === 401 || response.status === 403) {

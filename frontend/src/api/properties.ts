@@ -1,7 +1,5 @@
 import type { CreatePropertyInput, Property, PropertyImage } from '../data/properties'
-import { apiFetch } from './http'
-
-const API_BASE = 'http://localhost:8080/api'
+import { API_BASE, apiFetch } from './http'
 
 export async function fetchProperties(): Promise<Property[]> {
   const res = await fetch(`${API_BASE}/properties`)

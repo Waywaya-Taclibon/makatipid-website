@@ -1,7 +1,7 @@
 import { authHeaders, storedTokenInfo } from './authHeaders'
+import { API_BASE } from './http'
 import type { Booking } from '../data/rentallog'
 
-const BACKEND = 'http://localhost:8080/api'
 const PAYMONGO_API = 'https://api.paymongo.com/v1'
 
 /** QR code lifetime in seconds (PayMongo allows 60–9000). */
@@ -91,7 +91,7 @@ export async function createBookingIntent(
   startDate: string,
   endDate: string
 ): Promise<BookingIntent> {
-  const response = await fetch(`${BACKEND}/payments/intents`, {
+  const response = await fetch(`${API_BASE}/payments/intents`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ propertyId, startDate, endDate }),
@@ -191,7 +191,7 @@ function findHttpUrl(node: unknown): string | null {
 
 /** Live intent status for QR polling (goes through OUR backend, ownership-checked). */
 export async function getPaymentStatus(intentId: string): Promise<string> {
-  const response = await fetch(`${BACKEND}/payments/intents/${intentId}`, {
+  const response = await fetch(`${API_BASE}/payments/intents/${intentId}`, {
     headers: authHeaders(),
   })
   if (!response.ok) await throwForStatus('Failed to check payment status', response)
@@ -201,7 +201,7 @@ export async function getPaymentStatus(intentId: string): Promise<string> {
 
 /** Step 4: after success, ask OUR backend to verify and create the booking. */
 export async function confirmBookingPayment(intentId: string): Promise<Booking> {
-  const response = await fetch(`${BACKEND}/payments/intents/${intentId}/confirm`, {
+  const response = await fetch(`${API_BASE}/payments/intents/${intentId}/confirm`, {
     method: 'POST',
     headers: authHeaders(),
   })

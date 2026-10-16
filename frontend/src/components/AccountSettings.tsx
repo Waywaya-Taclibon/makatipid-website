@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { API_BASE } from '../api/http'
 
 export default function AccountSettings() {
   const { userName, token, login, logout } = useAuth()
@@ -23,7 +24,7 @@ export default function AccountSettings() {
     // Fetch current user details on mount
     const fetchProfile = async () => {
       try {
-        const response = await fetch('http://localhost:8080/api/users/me', {
+        const response = await fetch(`${API_BASE}/users/me`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         if (response.ok) {
@@ -60,7 +61,7 @@ export default function AccountSettings() {
 
     try {
       const emailChanged = formData.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase()
-      const response = await fetch('http://localhost:8080/api/users/me', {
+      const response = await fetch(`${API_BASE}/users/me`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
