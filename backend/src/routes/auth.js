@@ -5,13 +5,18 @@ const { signToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+function normalizeEmail(email) {
+  return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
 function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 router.post('/register', async (req, res, next) => {
   try {
-    const { name, email, password } = req.body || {};
+    const { name, password } = req.body || {};
+    const email = normalizeEmail(req.body && req.body.email);
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email and password are required' });
     }
@@ -21,7 +26,7 @@ router.post('/register', async (req, res, next) => {
     if (String(password).length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+    const [existing] = await pool.query('SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
     if (existing.length > 0) {
       return res.status(409).json({ message: 'An account with this email already exists' });
     }
@@ -32,7 +37,7 @@ router.post('/register', async (req, res, next) => {
       hash,
       'USER',
     ]);
-    const token = signToken(email);
+    const token = signToken(result.insertId, 0);
     return res.json({ token, name, id: result.insertId });
   } catch (err) {
     return next(err);
@@ -41,11 +46,12 @@ router.post('/register', async (req, res, next) => {
 
 router.post('/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body || {};
+    const { password } = req.body || {};
+    const email = normalizeEmail(req.body && req.body.email);
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
-    const [rows] = await pool.query('SELECT id, name, email, password FROM users WHERE email = ? LIMIT 1', [email]);
+    const [rows] = await pool.query('SELECT id, name, email, password, token_version FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
     if (rows.length === 0) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
@@ -59,7 +65,7 @@ router.post('/login', async (req, res, next) => {
     if (!ok) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
-    const token = signToken(user.email);
+    const token = signToken(user.id, Number(user.token_version) || 0);
     return res.json({ token, name: user.name, id: user.id });
   } catch (err) {
     return next(err);

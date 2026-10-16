@@ -2,7 +2,11 @@ const jwt = require('jsonwebtoken');
 const { pool } = require('../db');
 
 function getSecret() {
-  return process.env.JWT_SECRET || 'local-dev-only-do-not-use-in-prod';
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set in production.');
+  }
+  return 'local-dev-only-do-not-use-in-prod';
 }
 
 function getExpirationMs() {
@@ -10,8 +14,8 @@ function getExpirationMs() {
   return Number.isFinite(v) && v > 0 ? v : 86400000;
 }
 
-function signToken(email) {
-  return jwt.sign({ sub: email }, getSecret(), {
+function signToken(userId, tokenVersion = 0) {
+  return jwt.sign({ sub: String(userId), tv: Number(tokenVersion) || 0 }, getSecret(), {
     expiresIn: Math.floor(getExpirationMs() / 1000),
   });
 }
@@ -22,11 +26,18 @@ function extractBearer(req) {
   return h.slice(7).trim() || null;
 }
 
-// Public routes: /api/auth/** and GET /api/properties/**
+// Public routes: /api/auth/**, exact GET property reads, GET /health,
+// and the PayMongo webhook (PayMongo has no JWT; verified by signature instead).
 function isPublic(req) {
   if (req.path.startsWith('/api/auth/')) return true;
-  if (req.method === 'GET' && req.path.startsWith('/api/properties')) return true;
+  if (req.method === 'POST' && req.path === '/api/payments/webhook') return true;
   if (req.method === 'GET' && req.path === '/health') return true;
+  if (req.method !== 'GET') return false;
+  if (req.path === '/api/properties' || req.path === '/api/properties/') return true;
+  if (req.path === '/api/properties/available') return true;
+  if (req.path === '/api/properties/mine') return false; // owner-only, needs auth
+  const m = req.path.match(/^\/api\/properties\/(\d+)\/?$/);
+  if (m) return true;
   return false;
 }
 
@@ -34,17 +45,26 @@ async function authMiddleware(req, res, next) {
   if (isPublic(req)) return next();
   const token = extractBearer(req);
   if (!token) return res.status(401).json({ message: 'Missing or invalid Authorization header' });
-  let email;
+  let userId;
+  let tokenVersion = 0;
   try {
     const payload = jwt.verify(token, getSecret());
-    email = payload.sub;
+    userId = Number(payload.sub);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+    tokenVersion = Number(payload.tv) || 0;
   } catch {
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
   try {
-    const [rows] = await pool.query('SELECT id, name, email, password, role FROM users WHERE email = ? LIMIT 1', [email]);
+    const [rows] = await pool.query('SELECT id, name, email, role, token_version FROM users WHERE id = ? LIMIT 1', [userId]);
     if (rows.length === 0) return res.status(401).json({ message: 'User not found' });
-    req.user = rows[0];
+    const user = rows[0];
+    if (Number(user.token_version) !== tokenVersion) {
+      return res.status(401).json({ message: 'Session expired. Please log in again.' });
+    }
+    req.user = { id: user.id, name: user.name, email: user.email, role: user.role };
     return next();
   } catch (err) {
     return next(err);

@@ -9,6 +9,19 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   dateStrings: true, // return DATE columns as 'YYYY-MM-DD' strings (matches old LocalDate JSON)
+  timezone: '+08:00', // Asia/Manila: TIMESTAMP reads/writes (payments.created_at holds) match app rules
+  // Managed hosts (TiDB Cloud, PlanetScale) refuse unencrypted connections.
+  // DB_SSL=true verifies the server certificate (preferred).
+  // DB_SSL=lax still encrypts but skips verification — use only when the
+  // machine's CA store can't validate the chain (some Windows/AV setups).
+  ...(process.env.DB_SSL === 'true' || process.env.DB_SSL === 'lax'
+    ? {
+        ssl: {
+          minVersion: 'TLSv1.2',
+          rejectUnauthorized: process.env.DB_SSL !== 'lax',
+        },
+      }
+    : {}),
 });
 
 async function checkConnection() {
@@ -20,4 +33,61 @@ async function checkConnection() {
   }
 }
 
-module.exports = { pool, checkConnection };
+// Adds token_version to pre-existing databases (fresh installs get it from schema.sql).
+// Safe to run on every boot: duplicate-column errors are ignored.
+async function ensureUserTokenVersionColumn() {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN token_version INT NOT NULL DEFAULT 0');
+  } catch (err) {
+    // ER_DUP_FIELDNAME (1060): column already exists — nothing to do.
+    if (err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME')) return;
+    throw err;
+  }
+}
+
+// Creates the payments ledger on pre-existing databases (fresh installs get it from schema.sql).
+async function ensurePaymentsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      intent_id VARCHAR(255) NOT NULL UNIQUE,
+      property_id INT NOT NULL,
+      renter_id INT NOT NULL,
+      amount_centavos INT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+      start_date DATE NOT NULL,
+      end_date DATE NOT NULL,
+      booking_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT fk_payments_property FOREIGN KEY (property_id) REFERENCES properties (id),
+      CONSTRAINT fk_payments_renter FOREIGN KEY (renter_id) REFERENCES users (id),
+      CONSTRAINT fk_payments_booking FOREIGN KEY (booking_id) REFERENCES rentallog (id),
+      INDEX idx_payments_property_status (property_id, status, created_at)
+    )
+  `);
+}
+
+// Widens legacy lat/lng columns (old installs used 2 decimals, which snapped
+// every pin to a ~1km grid). Safe to run on every boot; re-running is a no-op.
+async function ensurePropertyCoordinatePrecision() {
+  await pool.query('ALTER TABLE properties MODIFY COLUMN lat DECIMAL(11,7) NOT NULL, MODIFY COLUMN lng DECIMAL(11,7) NOT NULL');
+}
+
+// Creates the property_images ledger on pre-existing databases (fresh installs get it from schema.sql).
+async function ensurePropertyImagesTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS property_images (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      property_id INT NOT NULL,
+      image_url VARCHAR(1024) NOT NULL,
+      public_id VARCHAR(255) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_property_images_property FOREIGN KEY (property_id) REFERENCES properties (id),
+      INDEX idx_property_images_property (property_id, sort_order)
+    )
+  `);
+}
+
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable };

@@ -33,4 +33,28 @@ function todayDateOnly() {
   return n;
 }
 
-module.exports = { wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, todayDateOnly };
+// Asia/Manila "today" at midnight, independent of the server/DB time zone.
+// Used for every "is this date in the past?" rule so local dev machines,
+// servers, and MySQL (CURDATE()) can't disagree off-by-one.
+function manilaTodayDateOnly() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date()); // "YYYY-MM-DD"
+  return parseDateOnly(parts);
+}
+
+function toDateTimeString(d) {
+  const dt = d instanceof Date ? d : new Date(d);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  const h = String(dt.getHours()).padStart(2, '0');
+  const min = String(dt.getMinutes()).padStart(2, '0');
+  const s = String(dt.getSeconds()).padStart(2, '0');
+  return `${y}-${m}-${day} ${h}:${min}:${s}`;
+}
+
+module.exports = { wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, todayDateOnly, manilaTodayDateOnly, toDateTimeString };
