@@ -14,6 +14,8 @@ import ProfileCompletionModal from './ProfileCompletionModal'
 import type { PhotoItem } from './PhotoPicker'
 import Swal from 'sweetalert2'
 import { useAuth } from '../context/AuthContext'
+import { useMotion } from '../context/MotionContext'
+import { BASE_MAP_PAN_SECONDS } from '../data/motion'
 import { cancelSwal } from '../utils/swal'
 import { fetchMyProfile, isProfileComplete, type UserProfile } from '../api/users'
 import { useAsyncLock } from '../hooks/useAsyncLock'
@@ -30,7 +32,8 @@ L.Icon.Default.mergeOptions({
 // Recenters the map whenever the selected property changes.
 function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap()
-  map.flyTo([lat, lng], map.getZoom(), { duration: 0.8 })
+  const { reduced, speed } = useMotion()
+  map.flyTo([lat, lng], map.getZoom(), { duration: reduced ? 0 : BASE_MAP_PAN_SECONDS / speed })
   return null
 }
 

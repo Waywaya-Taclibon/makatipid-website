@@ -2,6 +2,7 @@ import {useState} from 'react'
 import { settings, type Settings } from '../data/settings'
 import AccountSettings from './AccountSettings'
 import ThemeSettings from './ThemeSettings'
+import MotionSettings from './MotionSettings'
 
 export default function Settings() {
 
@@ -32,6 +33,7 @@ export default function Settings() {
             <div className="col-span-2 bg-white/95 backdrop-blur rounded-2xl shadow-xl overflow-hidden dark:bg-slate-900/95 dark:border dark:border-slate-800">
                 {selected.id === 1 && <AccountSettings />}
                 {selected.id === 2 && <ThemeSettings />}
+                {selected.id === 3 && <MotionSettings />}
             </div>
         </div>
     )

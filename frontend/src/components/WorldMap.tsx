@@ -102,7 +102,11 @@ export default function WorldMap() {
           height: WORLD_HEIGHT,
           transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
           transformOrigin: '0 0',
-          transition: animated ? 'transform 0.9s cubic-bezier(0.65, 0, 0.35, 1)' : 'none',
+          // Durations come from the Animations setting (MotionProvider writes
+          // these variables on <html>); the fallbacks are the original values.
+          transition: animated
+            ? 'transform var(--motion-camera-duration, 0.9s) var(--motion-camera-easing, cubic-bezier(0.65, 0, 0.35, 1))'
+            : 'none',
         }}
       >
         <WorldBackground />

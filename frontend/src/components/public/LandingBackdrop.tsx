@@ -1,3 +1,5 @@
+import { useMotion } from '../../context/MotionContext'
+
 /**
  * The public site's light and dark surfaces both derive from the same CSS
  * variables the in-app world map paints with (see index.css), so the landing
@@ -14,21 +16,23 @@ const sideRoad = 'M 1260 520 L 820 520 L 640 340'
 interface Car {
   path: string
   color: string
-  duration: string
+  /** Base loop length in seconds; the Animations setting scales it. */
+  duration: number
   begin: string
 }
 
 // Same palette and dimensions as WorldBackground, so the two surfaces read as
 // the same place. Negative begin values stagger cars mid-route on first paint.
 const cars: Car[] = [
-  { path: mainRoad, color: '#4a9e4a', duration: '30s', begin: '0s' },
-  { path: mainRoad, color: '#e05d44', duration: '38s', begin: '-14s' },
-  { path: mainRoad, color: '#8149e9', duration: '34s', begin: '-24s' },
-  { path: sideRoad, color: '#3fa7c4', duration: '18s', begin: '-4s' },
-  { path: sideRoad, color: '#e79c3a', duration: '22s', begin: '-13s' },
+  { path: mainRoad, color: '#4a9e4a', duration: 30, begin: '0s' },
+  { path: mainRoad, color: '#e05d44', duration: 38, begin: '-14s' },
+  { path: mainRoad, color: '#8149e9', duration: 34, begin: '-24s' },
+  { path: sideRoad, color: '#3fa7c4', duration: 18, begin: '-4s' },
+  { path: sideRoad, color: '#e79c3a', duration: 22, begin: '-13s' },
 ]
 
 export default function LandingBackdrop() {
+  const { carFactor } = useMotion()
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       <svg
@@ -55,18 +59,19 @@ export default function LandingBackdrop() {
           strokeLinejoin="round"
         />
 
-        {cars.map((car, index) => (
-          <g key={index}>
-            <rect x="-13" y="-8" width="26" height="16" rx="4" fill={car.color} />
-            <animateMotion
-              path={car.path}
-              dur={car.duration}
-              begin={car.begin}
-              repeatCount="indefinite"
-              rotate="auto"
-            />
-          </g>
-        ))}
+        {carFactor > 0 &&
+          cars.map((car, index) => (
+            <g key={index}>
+              <rect x="-13" y="-8" width="26" height="16" rx="4" fill={car.color} />
+              <animateMotion
+                path={car.path}
+                dur={`${(car.duration / carFactor).toFixed(2)}s`}
+                begin={car.begin}
+                repeatCount="indefinite"
+                rotate="auto"
+              />
+            </g>
+          ))}
       </svg>
     </div>
   )

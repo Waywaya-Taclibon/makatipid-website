@@ -108,3 +108,16 @@ html.dark .swal2-cancel {
   background-color: #334155;
   color: #e2e8f0;
 }
+
+/* Animations settings: the demo chip travels across the track; the duration and
+   easing come from the MotionProvider (see MotionSettings.tsx). */
+@keyframes motion-preview-run {
+  from { left: 0.5rem; }
+  to   { left: calc(100% - 2.5rem); }
+}
+
+/* Belt-and-braces stop for decorative CSS animation when the user picks
+   "Reduce motion" (JS-driven animations are skipped in their components). */
+html[data-motion="off"] .motion-decorative {
+  animation: none !important;
+}

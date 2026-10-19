@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 import { WORLD_WIDTH, WORLD_HEIGHT } from '../data/segments'
+import { useMotion } from '../context/MotionContext'
 
 type CarStyle = CSSProperties & { '--road-path': string }
 
@@ -34,12 +35,17 @@ function useRandomDelay(durationSeconds: number) {
 }
 
 export default function WorldBackground() {
+  const { carFactor } = useMotion()
   const delayA = useRandomDelay(20)
   const delayB = useRandomDelay(22)
   const delayLoop = useRandomDelay(14)
   const delayC = useRandomDelay(25)
   const delayD = useRandomDelay(30)
   const delayE = useRandomDelay(24)
+
+  // Faster setting = shorter loop = cars move quicker. carFactor is 0 when the
+  // user picked "Reduce motion", and the cars are simply not rendered.
+  const carDuration = (baseSeconds: number) => `${(baseSeconds / carFactor).toFixed(2)}s`
 
   return (
     <div
@@ -63,12 +69,16 @@ export default function WorldBackground() {
         ))}
       </svg>
 
-      <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: '53s', animationDelay: delayA, background: '#4a9e4a', animationName: 'driveA' } as CarStyle} />
-      <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: '50s', animationDelay: delayB, background: '#e05d44', animationName: 'driveB' } as CarStyle} />
-      <div className="car" style={{ '--road-path': `path('${secondaryPath}')`, animationDuration: '55s', animationDelay: delayLoop, background: '#3fa7c4', animationName: 'driveLoop' } as CarStyle} />
-      <div className="car" style={{ '--road-path': `path('${secondaryPath}')`, animationDuration: '46s', animationDelay: delayC, background: '#e79c3a', animationName: 'driveLoop' } as CarStyle} />
-      <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: '51s', animationDelay: delayD, background: '#8149e9', animationName: 'driveB' } as CarStyle} />
-      <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: '45s', animationDelay: delayE, background: '#ff4fb5', animationName: 'driveA' } as CarStyle} />
+      {carFactor > 0 && (
+        <>
+          <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: carDuration(53), animationDelay: delayA, background: '#4a9e4a', animationName: 'driveA' } as CarStyle} />
+          <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: carDuration(50), animationDelay: delayB, background: '#e05d44', animationName: 'driveB' } as CarStyle} />
+          <div className="car" style={{ '--road-path': `path('${secondaryPath}')`, animationDuration: carDuration(55), animationDelay: delayLoop, background: '#3fa7c4', animationName: 'driveLoop' } as CarStyle} />
+          <div className="car" style={{ '--road-path': `path('${secondaryPath}')`, animationDuration: carDuration(46), animationDelay: delayC, background: '#e79c3a', animationName: 'driveLoop' } as CarStyle} />
+          <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: carDuration(51), animationDelay: delayD, background: '#8149e9', animationName: 'driveB' } as CarStyle} />
+          <div className="car" style={{ '--road-path': `path('${primaryPath}')`, animationDuration: carDuration(45), animationDelay: delayE, background: '#ff4fb5', animationName: 'driveA' } as CarStyle} />
+        </>
+      )}
 
       <style>{`
         .car {

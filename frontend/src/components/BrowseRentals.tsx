@@ -6,6 +6,8 @@ import 'leaflet/dist/leaflet.css'
 import type { Property } from '../data/properties'
 import { fetchAvailableProperties } from '../api/properties'
 import { useAuth } from '../context/AuthContext'
+import { useMotion } from '../context/MotionContext'
+import { BASE_MAP_PAN_SECONDS } from '../data/motion'
 import BookRentalModal from './BookRentalModal'
 import ContactOwnerModal from './ContactOwnerModal'
 import PropertyDetailsModal from './PropertyDetailsModal'
@@ -22,7 +24,8 @@ L.Icon.Default.mergeOptions({
 
 function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
   const map = useMap()
-  map.flyTo([lat, lng], map.getZoom(), { duration: 0.8 })
+  const { reduced, speed } = useMotion()
+  map.flyTo([lat, lng], map.getZoom(), { duration: reduced ? 0 : BASE_MAP_PAN_SECONDS / speed })
   return null
 }
 

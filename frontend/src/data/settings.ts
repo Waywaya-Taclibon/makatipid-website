@@ -6,5 +6,6 @@ export interface Settings {
 
 export const settings: Settings[] = [
   { id: 1, name: 'Account', logo: '👤'},
-  { id: 2, name: 'Theme', logo: '🎨'}
+  { id: 2, name: 'Theme', logo: '🎨'},
+  { id: 3, name: 'Animations', logo: '🎞️'}
 ]

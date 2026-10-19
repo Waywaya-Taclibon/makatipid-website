@@ -3,6 +3,8 @@ import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-lea
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAsyncLock } from '../hooks/useAsyncLock'
+import { useMotion } from '../context/MotionContext'
+import { BASE_SEARCH_PAN_SECONDS } from '../data/motion'
 
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -45,11 +47,14 @@ function Recenter({ lat, lng }: { lat: number | null; lng: number | null }) {
 
 function FlyTo({ target }: { target: { lat: number; lng: number } | null }) {
   const map = useMap()
+  const { reduced, speed } = useMotion()
   useEffect(() => {
     if (target) {
-      map.flyTo([target.lat, target.lng], SEARCH_ZOOM, { duration: 1 })
+      map.flyTo([target.lat, target.lng], SEARCH_ZOOM, {
+        duration: reduced ? 0 : BASE_SEARCH_PAN_SECONDS / speed,
+      })
     }
-  }, [map, target])
+  }, [map, target, reduced, speed])
   return null
 }
 
