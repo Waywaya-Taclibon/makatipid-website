@@ -61,6 +61,13 @@ export default function BrowseRentals() {
   const [detailsProperty, setDetailsProperty] = useState<Property | null>(null)
   const [contactProperty, setContactProperty] = useState<Property | null>(null)
 
+  // Renters only see other people's listings. Deriving the visible list (and a
+  // valid selection) keeps the map from sitting on "Loading map..." forever
+  // when the feed is empty or every listing belongs to the signed-in owner.
+  const visibleProperties = properties.filter((p) => Number(p.ownerId) !== Number(userId))
+  const selectedVisible =
+    visibleProperties.find((p) => p.id === selected?.id) ?? visibleProperties[0] ?? null
+
   return (
     <div className="grid grid-cols-3 gap-6 w-full h-[75vh] max-w-6xl">
       <div className="col-span-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 overflow-y-auto dark:bg-slate-900/95 dark:border dark:border-slate-800">
@@ -68,18 +75,22 @@ export default function BrowseRentals() {
 
         {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading properties...</p>}
         {error && <p className="text-sm text-red-500 dark:text-red-400">Couldn't load properties: {error}</p>}
+        {!loading && !error && visibleProperties.length === 0 && (
+          <p className="text-sm text-slate-400 dark:text-slate-500">
+            {properties.length > 0
+              ? "You've listed all current rentals. New listings from other owners will appear here."
+              : 'No rentals available right now. Check back soon.'}
+          </p>
+        )}
 
         <div className="flex flex-col gap-2">
-          {properties.map((p) => {
-            // Hide property if the logged-in user owns it
-            if (Number(userId) === Number(p.ownerId)) return null
-
+          {visibleProperties.map((p) => {
             return (
               <div
                 key={p.id}
                 onClick={() => setSelected(p)}
                 className={`text-left rounded-xl transition-colors cursor-pointer overflow-hidden ${
-                  selected?.id === p.id
+                  selectedVisible?.id === p.id
                     ? 'bg-blue-100 border-2 border-blue-400 dark:bg-blue-500/15 dark:border-blue-400'
                     : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800'
                 }`}
@@ -133,20 +144,30 @@ export default function BrowseRentals() {
       </div>
 
       <div className="col-span-2 bg-white/95 backdrop-blur rounded-2xl shadow-xl overflow-hidden dark:bg-slate-900/95 dark:border dark:border-slate-800">
-        {isActive && selected ? (
-          <MapContainer center={[selected.lat, selected.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
+        {isActive && selectedVisible ? (
+          <MapContainer center={[selectedVisible.lat, selectedVisible.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap contributors"
             />
-            <RecenterMap lat={selected.lat} lng={selected.lng} />
-            <Marker position={[selected.lat, selected.lng]}>
-              <Popup>{selected.lotName}</Popup>
+            <RecenterMap lat={selectedVisible.lat} lng={selectedVisible.lng} />
+            <Marker position={[selectedVisible.lat, selectedVisible.lng]}>
+              <Popup>{selectedVisible.lotName}</Popup>
             </Marker>
           </MapContainer>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-500">
-            {isActive ? 'Loading map...' : 'Map loads when this page is active'}
+          <div className="w-full h-full flex items-center justify-center px-6 text-center text-slate-400 dark:text-slate-500">
+            {!isActive
+              ? 'Map loads when this page is active'
+              : loading
+              ? 'Loading map...'
+              : error
+              ? 'Map unavailable — rentals could not be loaded.'
+              : visibleProperties.length === 0
+              ? properties.length > 0
+                ? "You're viewing your own listings, so there is nothing to show on the map yet."
+                : 'No rentals to show on the map yet. New listings will appear here.'
+              : 'Select a rental to view it on the map'}
           </div>
         )}
       </div>
