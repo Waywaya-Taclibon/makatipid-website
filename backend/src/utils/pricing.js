@@ -57,4 +57,8 @@ function toDateTimeString(d) {
   return `${y}-${m}-${day} ${h}:${min}:${s}`;
 }
 
-module.exports = { wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, todayDateOnly, manilaTodayDateOnly, toDateTimeString };
+// Short-lived hold while a renter is at the QR step. Booking availability and
+// search availability must agree on this window, so it lives here.
+const HOLD_MINUTES = 5;
+
+module.exports = { HOLD_MINUTES, wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, todayDateOnly, manilaTodayDateOnly, toDateTimeString };

@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
-const { parseDateOnly, manilaTodayDateOnly } = require('../utils/pricing');
+const { parseDateOnly, toDateOnlyString, manilaTodayDateOnly, toDateTimeString, HOLD_MINUTES } = require('../utils/pricing');
 
 const router = express.Router();
 
@@ -48,7 +48,10 @@ function boolOrNull(v) {
   return Boolean(v);
 }
 
-function toResponse(row, occupied, images) {
+// `includeContact` keeps owner phone/email/socials out of anonymous responses.
+// Public search is browsable by anyone, so contact details are only attached
+// when a valid member token came with the request.
+function toResponse(row, occupied, images, includeContact = true) {
   return {
     id: row.id,
     lotName: row.lot_name,
@@ -58,6 +61,17 @@ function toResponse(row, occupied, images) {
     lng: Number(row.lng),
     ownerId: row.owner_id,
     ownerName: row.owner_name || null,
+    // Contact details shown in the renter's Contact Owner modal. Any field the
+    // owner hasn't filled in comes back null and the modal shows a placeholder.
+    ownerContact: includeContact
+      ? {
+          name: row.owner_name || null,
+          phone: row.owner_phone || null,
+          email: row.owner_email || null,
+          facebook: row.owner_facebook || null,
+          instagram: row.owner_instagram || null,
+        }
+      : null,
     occupied: Boolean(occupied),
     archived: Boolean(row.archived),
     availableUntil: row.available_until || null,
@@ -89,7 +103,8 @@ async function imagesByPropertyIds(ids) {
 }
 
 const SELECT_ALL = `
-  SELECT p.*, u.name AS owner_name
+  SELECT p.*, u.name AS owner_name, u.email AS owner_email, u.phone AS owner_phone,
+         u.facebook AS owner_facebook, u.instagram AS owner_instagram
   FROM properties p
   LEFT JOIN users u ON u.id = p.owner_id
 `;
@@ -117,7 +132,8 @@ router.get('/', async (req, res, next) => {
     const [rows] = await pool.query(SELECT_ALL);
     const occupied = await occupiedSet();
     const images = await imagesByPropertyIds(rows.map((p) => p.id));
-    return res.json(rows.map((p) => toResponse(p, occupied.has(p.id), images.get(p.id))));
+    const includeContact = Boolean(req.user);
+    return res.json(rows.map((p) => toResponse(p, occupied.has(p.id), images.get(p.id), includeContact)));
   } catch (err) {
     return next(err);
   }
@@ -128,7 +144,227 @@ router.get('/available', async (req, res, next) => {
     const [rows] = await pool.query(SELECT_ALL);
     const occupied = await occupiedSet();
     const images = await imagesByPropertyIds(rows.map((p) => p.id));
-    return res.json(rows.filter((p) => !p.archived).map((p) => toResponse(p, occupied.has(p.id), images.get(p.id))));
+    const includeContact = Boolean(req.user);
+    return res.json(
+      rows
+        .filter((p) => !p.archived)
+        .map((p) => toResponse(p, occupied.has(p.id), images.get(p.id), includeContact))
+    );
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Public search
+// ---------------------------------------------------------------------------
+
+const MAX_SEARCH_LIMIT = 60;
+const DEFAULT_SEARCH_LIMIT = 24;
+
+const SEARCH_SORTS = {
+  newest: 'p.id DESC',
+  price_asc: 'p.price ASC',
+  price_desc: 'p.price DESC',
+};
+
+/** Escapes LIKE wildcards so a visitor's `%` can't match every row. */
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/** Accepts only plain string query values (Express gives arrays for repeats). */
+function queryString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function queryNumber(value, { min = 0 } = {}) {
+  const raw = queryString(value);
+  if (raw === '') return { ok: true, value: undefined };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min) return { ok: false };
+  return { ok: true, value: n };
+}
+
+/** Returns { ok: true, value: 1|0|undefined } or { ok: false }. */
+function queryBool(value) {
+  const raw = queryString(value).toLowerCase();
+  if (raw === '') return { ok: true, value: undefined };
+  if (raw === '1' || raw === 'true') return { ok: true, value: 1 };
+  if (raw === '0' || raw === 'false') return { ok: true, value: 0 };
+  return { ok: false };
+}
+
+/**
+ * Turns the query string into a parameterised WHERE clause.
+ *
+ * The date window mirrors the checkout rules in payments.js exactly: a
+ * non-ENDED booking or a live PENDING payment hold that overlaps the range
+ * blocks the property, and `available_until` caps the far end. Anything looser
+ * would show places that later reject the booking.
+ */
+function buildSearchWhere(query) {
+  const where = ['p.archived = 0'];
+  const params = [];
+
+  const q = queryString(query.q);
+  if (q.length > 255) return { error: 'Search text is too long' };
+  if (q) {
+    const like = `%${escapeLike(q)}%`;
+    where.push('(p.address LIKE ? OR p.lot_name LIKE ?)');
+    params.push(like, like);
+  }
+
+  const rawStart = queryString(query.start);
+  const rawEnd = queryString(query.end);
+  if (Boolean(rawStart) !== Boolean(rawEnd)) {
+    return { error: 'start and end must be provided together' };
+  }
+  if (rawStart && rawEnd) {
+    const start = parseDateOnly(rawStart);
+    const end = parseDateOnly(rawEnd);
+    if (!start || !end) return { error: 'start and end must be valid YYYY-MM-DD dates' };
+    if (start > end) return { error: 'start must be on or before end' };
+    if (end < manilaTodayDateOnly()) return { error: 'end must not be in the past' };
+
+    const startStr = toDateOnlyString(start);
+    const endStr = toDateOnlyString(end);
+
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM rentallog r
+      WHERE r.property_id = p.id AND UPPER(r.status) <> 'ENDED'
+        AND r.start_date <= ? AND (r.end_date IS NULL OR r.end_date >= ?)
+    )`);
+    params.push(endStr, startStr);
+
+    where.push(`NOT EXISTS (
+      SELECT 1 FROM payments pay
+      WHERE pay.property_id = p.id AND pay.status = 'PENDING'
+        AND pay.created_at > ?
+        AND pay.start_date <= ? AND pay.end_date >= ?
+    )`);
+    const cutoff = toDateTimeString(new Date(Date.now() - HOLD_MINUTES * 60 * 1000));
+    params.push(cutoff, endStr, startStr);
+
+    where.push('(p.available_until IS NULL OR p.available_until >= ?)');
+    params.push(endStr);
+  }
+
+  const minPrice = queryNumber(query.minPrice);
+  if (!minPrice.ok) return { error: 'minPrice must be a non-negative number' };
+  if (minPrice.value !== undefined) {
+    where.push('p.price >= ?');
+    params.push(minPrice.value);
+  }
+
+  const maxPrice = queryNumber(query.maxPrice);
+  if (!maxPrice.ok) return { error: 'maxPrice must be a non-negative number' };
+  if (maxPrice.value !== undefined) {
+    where.push('p.price <= ?');
+    params.push(maxPrice.value);
+  }
+
+  const maxDeposit = queryNumber(query.maxDeposit);
+  if (!maxDeposit.ok) return { error: 'maxDeposit must be a non-negative number' };
+  if (maxDeposit.value !== undefined) {
+    where.push('(p.security_deposit IS NULL OR p.security_deposit <= ?)');
+    params.push(maxDeposit.value);
+  }
+
+  const internet = queryString(query.internet);
+  if (internet) {
+    if (!VALID_INTERNET.has(internet)) {
+      return { error: 'internet must be INCLUDED, AVAILABLE, or NONE' };
+    }
+    where.push('p.internet = ?');
+    params.push(internet);
+  }
+
+  const booleanFilters = [
+    ['pets', 'p.pets_allowed'],
+    ['smoking', 'p.smoking_allowed'],
+    ['modifications', 'p.modifications_allowed'],
+    ['electricity', 'p.electricity_included'],
+    ['water', 'p.water_included'],
+  ];
+  for (const [key, column] of booleanFilters) {
+    const parsed = queryBool(query[key]);
+    if (!parsed.ok) return { error: `${key} must be true or false` };
+    if (parsed.value !== undefined) {
+      where.push(`${column} = ?`);
+      params.push(parsed.value);
+    }
+  }
+
+  return { where: where.join(' AND '), params };
+}
+
+router.get('/search', async (req, res, next) => {
+  try {
+    const query = req.query || {};
+    const built = buildSearchWhere(query);
+    if (built.error) return res.status(400).json({ message: built.error });
+
+    const sortKey = queryString(query.sort) || 'newest';
+    const orderBy = SEARCH_SORTS[sortKey];
+    if (!orderBy) {
+      return res.status(400).json({ message: `sort must be one of: ${Object.keys(SEARCH_SORTS).join(', ')}` });
+    }
+
+    // Coerced to integers here, so inlining them is safe and avoids driver
+    // differences around LIMIT placeholders.
+    const limit = Math.min(
+      Math.max(Math.floor(Number(queryString(query.limit)) || DEFAULT_SEARCH_LIMIT), 1),
+      MAX_SEARCH_LIMIT
+    );
+    const offset = Math.max(Math.floor(Number(queryString(query.offset)) || 0), 0);
+
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total FROM properties p WHERE ${built.where}`,
+      built.params
+    );
+    const [rows] = await pool.query(
+      `${SELECT_ALL} WHERE ${built.where} ORDER BY ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
+      built.params
+    );
+
+    const occupied = await occupiedSet();
+    const images = await imagesByPropertyIds(rows.map((p) => p.id));
+    const includeContact = Boolean(req.user);
+
+    return res.json({
+      items: rows.map((p) => toResponse(p, occupied.has(p.id), images.get(p.id), includeContact)),
+      total: Number(countRows[0].total) || 0,
+      limit,
+      offset,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Destination autocomplete: distinct addresses from what's actually listed, so
+// the landing box never suggests a place that doesn't exist here.
+router.get('/suggestions', async (req, res, next) => {
+  try {
+    const q = queryString(req.query.q);
+    if (q) {
+      const [rows] = await pool.query(
+        `SELECT DISTINCT address FROM properties
+         WHERE archived = 0 AND address LIKE ?
+         ORDER BY address
+         LIMIT 8`,
+        [`%${escapeLike(q)}%`]
+      );
+      return res.json(rows.map((r) => r.address));
+    }
+    const [rows] = await pool.query(
+      `SELECT DISTINCT address FROM properties
+       WHERE archived = 0
+       ORDER BY address
+       LIMIT 8`
+    );
+    return res.json(rows.map((r) => r.address));
   } catch (err) {
     return next(err);
   }
@@ -139,7 +375,7 @@ router.get('/mine', async (req, res, next) => {
     const [rows] = await pool.query(`${SELECT_ALL} WHERE p.owner_id = ?`, [req.user.id]);
     const occupied = await occupiedSet();
     const images = await imagesByPropertyIds(rows.map((p) => p.id));
-    return res.json(rows.map((p) => toResponse(p, occupied.has(p.id), images.get(p.id))));
+    return res.json(rows.map((p) => toResponse(p, occupied.has(p.id), images.get(p.id), true)));
   } catch (err) {
     return next(err);
   }
@@ -150,7 +386,7 @@ router.get('/:id', async (req, res, next) => {
     const row = await findById(req.params.id);
     if (!row) return res.status(404).json({ message: `Property not found with id ${req.params.id}` });
     const images = await imagesByPropertyIds([row.id]);
-    return res.json(toResponse(row, await isOccupied(row.id), images.get(row.id)));
+    return res.json(toResponse(row, await isOccupied(row.id), images.get(row.id), Boolean(req.user)));
   } catch (err) {
     return next(err);
   }
@@ -195,7 +431,7 @@ router.post('/', async (req, res, next) => {
         b.smokingAllowed ?? null, b.modificationsAllowed ?? null]
     );
     const row = await findById(result.insertId);
-    return res.json(toResponse(row, false, []));
+    return res.json(toResponse(row, false, [], true));
   } catch (err) {
     return next(err);
   }
@@ -255,7 +491,7 @@ router.put('/:id', async (req, res, next) => {
     );
     const updated = await findById(req.params.id);
     const images = await imagesByPropertyIds([updated.id]);
-    return res.json(toResponse(updated, await isOccupied(updated.id), images.get(updated.id)));
+    return res.json(toResponse(updated, await isOccupied(updated.id), images.get(updated.id), true));
   } catch (err) {
     return next(err);
   }
@@ -271,7 +507,7 @@ router.put('/:id/archive', async (req, res, next) => {
     await pool.query('UPDATE properties SET archived = TRUE WHERE id = ?', [req.params.id]);
     const updated = await findById(req.params.id);
     const archivedImages = await imagesByPropertyIds([updated.id]);
-    return res.json(toResponse(updated, await isOccupied(updated.id), archivedImages.get(updated.id)));
+    return res.json(toResponse(updated, await isOccupied(updated.id), archivedImages.get(updated.id), true));
   } catch (err) {
     return next(err);
   }
@@ -287,7 +523,7 @@ router.put('/:id/unarchive', async (req, res, next) => {
     await pool.query('UPDATE properties SET archived = FALSE WHERE id = ?', [req.params.id]);
     const updated = await findById(req.params.id);
     const unarchivedImages = await imagesByPropertyIds([updated.id]);
-    return res.json(toResponse(updated, await isOccupied(updated.id), unarchivedImages.get(updated.id)));
+    return res.json(toResponse(updated, await isOccupied(updated.id), unarchivedImages.get(updated.id), true));
   } catch (err) {
     return next(err);
   }

@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
   role VARCHAR(50) NOT NULL DEFAULT 'USER',
-  token_version INT NOT NULL DEFAULT 0
+  token_version INT NOT NULL DEFAULT 0,
+  phone VARCHAR(32) NULL,
+  facebook VARCHAR(255) NULL,
+  instagram VARCHAR(255) NULL
 );
 
 CREATE TABLE IF NOT EXISTS properties (

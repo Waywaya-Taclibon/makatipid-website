@@ -35,6 +35,8 @@ function isPublic(req) {
   if (req.method !== 'GET') return false;
   if (req.path === '/api/properties' || req.path === '/api/properties/') return true;
   if (req.path === '/api/properties/available') return true;
+  if (req.path === '/api/properties/search') return true;
+  if (req.path === '/api/properties/suggestions') return true;
   if (req.path === '/api/properties/mine') return false; // owner-only, needs auth
   const m = req.path.match(/^\/api\/properties\/(\d+)\/?$/);
   if (m) return true;
@@ -42,26 +44,39 @@ function isPublic(req) {
 }
 
 async function authMiddleware(req, res, next) {
-  if (isPublic(req)) return next();
+  // Public routes still get optional auth: if a valid token rides along we
+  // attach req.user so responses can include data that only members may see
+  // (owner contact details). A missing/invalid/stale token simply means
+  // "anonymous" here, never a 401.
+  const publicRoute = isPublic(req);
   const token = extractBearer(req);
-  if (!token) return res.status(401).json({ message: 'Missing or invalid Authorization header' });
+  if (!token) {
+    if (publicRoute) return next();
+    return res.status(401).json({ message: 'Missing or invalid Authorization header' });
+  }
   let userId;
   let tokenVersion = 0;
   try {
     const payload = jwt.verify(token, getSecret());
     userId = Number(payload.sub);
     if (!Number.isInteger(userId) || userId <= 0) {
+      if (publicRoute) return next();
       return res.status(401).json({ message: 'Invalid or expired token' });
     }
     tokenVersion = Number(payload.tv) || 0;
   } catch {
+    if (publicRoute) return next();
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
   try {
     const [rows] = await pool.query('SELECT id, name, email, role, token_version FROM users WHERE id = ? LIMIT 1', [userId]);
-    if (rows.length === 0) return res.status(401).json({ message: 'User not found' });
+    if (rows.length === 0) {
+      if (publicRoute) return next();
+      return res.status(401).json({ message: 'User not found' });
+    }
     const user = rows[0];
     if (Number(user.token_version) !== tokenVersion) {
+      if (publicRoute) return next();
       return res.status(401).json({ message: 'Session expired. Please log in again.' });
     }
     req.user = { id: user.id, name: user.name, email: user.email, role: user.role };

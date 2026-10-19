@@ -45,6 +45,26 @@ async function ensureUserTokenVersionColumn() {
   }
 }
 
+// Adds the owner-contact columns to pre-existing databases (fresh installs get
+// them from schema.sql). Safe to run on every boot: the duplicate-column error
+// just means an earlier boot already added it.
+async function ensureUserProfileColumns() {
+  const columns = [
+    'phone VARCHAR(32) NULL',
+    'facebook VARCHAR(255) NULL',
+    'instagram VARCHAR(255) NULL',
+  ];
+  for (const column of columns) {
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN ${column}`);
+    } catch (err) {
+      // ER_DUP_FIELDNAME (1060): column already exists — nothing to do.
+      if (err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME')) continue;
+      throw err;
+    }
+  }
+}
+
 // Creates the payments ledger on pre-existing databases (fresh installs get it from schema.sql).
 async function ensurePaymentsTable() {
   await pool.query(`
@@ -90,4 +110,4 @@ async function ensurePropertyImagesTable() {
   `);
 }
 
-module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable };
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable };

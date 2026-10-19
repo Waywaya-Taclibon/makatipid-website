@@ -1,12 +1,9 @@
 const express = require('express');
 const { pool } = require('../db');
 const paymongo = require('../services/paymongo');
-const { wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, manilaTodayDateOnly, toDateTimeString } = require('../utils/pricing');
+const { wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, manilaTodayDateOnly, toDateTimeString, HOLD_MINUTES } = require('../utils/pricing');
 
 const router = express.Router();
-
-// Short-lived hold while the renter is scanning the QR (matches QR_EXPIRY_SECONDS=300).
-const HOLD_MINUTES = 5;
 
 function toBookingResponse(row) {
   return {

@@ -94,10 +94,11 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  const { checkConnection, ensureUserTokenVersionColumn, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable } = require('./db');
+  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable } = require('./db');
   checkConnection()
     .then(() => console.log('MySQL connected'))
     .then(() => ensureUserTokenVersionColumn())
+    .then(() => ensureUserProfileColumns())
     .then(() => ensurePaymentsTable())
     .then(() => ensurePropertyCoordinatePrecision())
     .then(() => ensurePropertyImagesTable())
