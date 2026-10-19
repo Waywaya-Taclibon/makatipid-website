@@ -47,14 +47,14 @@ export default function WorldBackground() {
       style={{ width: WORLD_WIDTH, height: WORLD_HEIGHT }}
     >
       <svg width={WORLD_WIDTH} height={WORLD_HEIGHT} className="absolute top-0 left-0">
-        <rect width={WORLD_WIDTH} height={WORLD_HEIGHT} fill="#f4f5f0" />
+        <rect width={WORLD_WIDTH} height={WORLD_HEIGHT} className="map-land" />
 
-        <path d={primaryPath} fill="none" stroke="#ffffff" strokeWidth="34" strokeLinejoin="round" strokeLinecap="round" />
-        <path d={secondaryPath} fill="none" stroke="#ffffff" strokeWidth="28" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={primaryPath} fill="none" className="map-road" strokeWidth="34" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={secondaryPath} fill="none" className="map-road" strokeWidth="28" strokeLinejoin="round" strokeLinecap="round" />
 
         {houses.map(([hx, hy], i) => (
           <g key={i}>
-            <rect x={hx - 55} y={hy - 35} width="110" height="70" rx="8" fill="#dcdcd4" stroke="#ffffff" strokeWidth="3" />
+            <rect x={hx - 55} y={hy - 35} width="110" height="70" rx="8" className="map-house" strokeWidth="3" />
             <g transform={`translate(${hx}, ${hy})`}>
               <rect x="-22" y="-22" width="44" height="44" rx="10" fill="#f4a340" stroke="white" strokeWidth="4" />
               <circle cx="0" cy="-4" r="6" fill="white" />

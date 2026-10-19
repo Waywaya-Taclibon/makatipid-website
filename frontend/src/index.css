@@ -1,6 +1,110 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: the ThemeProvider toggles `.dark` on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Illustrated world map palette (light). */
+  --map-land: #f4f5f0;
+  --map-road: #ffffff;
+  --map-house: #dcdcd4;
+  --map-house-stroke: #ffffff;
+  --dashboard-bg: #eeeae0;
+}
+
+html.dark {
+  /* Night palette for the world map. */
+  --map-land: #1e293b;
+  --map-road: #334155;
+  --map-house: #0f172a;
+  --map-house-stroke: #334155;
+  --dashboard-bg: #0b1220;
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #f1f5f9; /* slate-100 */
+}
+
+html.dark body {
+  background-color: #020617; /* slate-950 */
+}
+
+/* SVG presentation lives in CSS so the map can re-color per theme. */
+.map-land {
+  fill: var(--map-land);
+}
+
+.map-road {
+  stroke: var(--map-road);
+}
+
+.map-house {
+  fill: var(--map-house);
+  stroke: var(--map-house-stroke);
+}
+
+/* Leaflet: darken the raster tiles and its chrome while keeping markers usable. */
+html.dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}
+
+html.dark .leaflet-container {
+  background: #0b1220;
+}
+
+html.dark .leaflet-bar a {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border-bottom-color: #334155;
+}
+
+html.dark .leaflet-bar a:hover {
+  background-color: #334155;
+}
+
+html.dark .leaflet-control-attribution {
+  background: rgba(15, 23, 42, 0.8);
+  color: #cbd5e1;
+}
+
+html.dark .leaflet-control-attribution a {
+  color: #93c5fd;
+}
+
+html.dark .leaflet-popup-content-wrapper,
+html.dark .leaflet-popup-tip {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+/* SweetAlert2 dialogs need explicit dark surfaces (popups are portalled). */
+html.dark .swal2-popup {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+html.dark .swal2-title {
+  color: #f1f5f9 !important;
+}
+
+html.dark .swal2-html-container {
+  color: #cbd5e1;
+}
+
+html.dark .swal2-cancel {
+  background-color: #334155;
+  color: #e2e8f0;
 }
