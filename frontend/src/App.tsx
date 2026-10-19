@@ -1,7 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { AuthModalProvider } from './context/AuthModalContext'
+import { ConfigProvider } from './context/ConfigContext'
+import { DemoProvider } from './context/DemoContext'
 import AuthModal from './components/auth/AuthModal'
+import DemoBanner from './components/DemoBanner'
 import PublicLayout from './components/public/PublicLayout'
 import WorldMap from './components/WorldMap'
 import LandingPage from './pages/landing/LandingPage'
@@ -11,6 +14,7 @@ import HowItWorksPage from './pages/landing/HowItWorksPage'
 import ContactPage from './pages/landing/ContactPage'
 import SearchPage from './pages/landing/SearchPage'
 import AuthDeepLink from './pages/landing/AuthDeepLink'
+import DemoPage from './pages/landing/DemoPage'
 import PaymentReturnPage from './pages/PaymentReturnPage'
 import { segments } from './data/segments'
 
@@ -39,29 +43,36 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AuthModalProvider>
-          <Routes>
-            {/* /login and /register live outside the public shell so the
-                redirect happens before any chrome is painted. */}
-            <Route path="/login" element={<AuthDeepLink mode="login" />} />
-            <Route path="/register" element={<AuthDeepLink mode="register" />} />
+      <ConfigProvider>
+        <DemoProvider>
+          <Router>
+            <AuthModalProvider>
+              <Routes>
+                {/* /login and /register live outside the public shell so the
+                    redirect happens before any chrome is painted. */}
+                <Route path="/login" element={<AuthDeepLink mode="login" />} />
+                <Route path="/register" element={<AuthDeepLink mode="register" />} />
+                {/* One-click demo; also a shareable link (/demo?role=renter). */}
+                <Route path="/demo" element={<DemoPage />} />
 
-            <Route element={<PublicLayout />}>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/about" element={<AboutPage />} />
-              <Route path="/features" element={<FeaturesPage />} />
-              <Route path="/how-it-works" element={<HowItWorksPage />} />
-              <Route path="/contact" element={<ContactPage />} />
-              <Route path="/search" element={<SearchPage />} />
-            </Route>
+                <Route element={<PublicLayout />}>
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path="/about" element={<AboutPage />} />
+                  <Route path="/features" element={<FeaturesPage />} />
+                  <Route path="/how-it-works" element={<HowItWorksPage />} />
+                  <Route path="/contact" element={<ContactPage />} />
+                  <Route path="/search" element={<SearchPage />} />
+                </Route>
 
-            <Route path="/payment-return" element={<ProtectedRoute><PaymentReturnPage /></ProtectedRoute>} />
-            <Route path="/*" element={<ProtectedRoute><WorldMap /></ProtectedRoute>} />
-          </Routes>
-          <AuthModal />
-        </AuthModalProvider>
-      </Router>
+                <Route path="/payment-return" element={<ProtectedRoute><PaymentReturnPage /></ProtectedRoute>} />
+                <Route path="/*" element={<ProtectedRoute><WorldMap /></ProtectedRoute>} />
+              </Routes>
+              <AuthModal />
+              <DemoBanner />
+            </AuthModalProvider>
+          </Router>
+        </DemoProvider>
+      </ConfigProvider>
     </AuthProvider>
   )
 }

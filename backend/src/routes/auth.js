@@ -2,6 +2,7 @@ const express = require('express');
 const argon2 = require('argon2');
 const { pool } = require('../db');
 const { signToken } = require('../middleware/auth');
+const { isDemoEnabled, prepareDemoSession } = require('../demo');
 
 const router = express.Router();
 
@@ -67,6 +68,29 @@ router.post('/login', async (req, res, next) => {
     }
     const token = signToken(user.id, Number(user.token_version) || 0);
     return res.json({ token, name: user.name, id: user.id });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// One-click demo: mints a token for a shared, seeded demo account. No password
+// is involved and no credentials are exposed. Disabled entirely when
+// DEMO_LOGIN_ENABLED=false (both this endpoint and the UI buttons).
+router.post('/demo', async (req, res, next) => {
+  try {
+    if (!isDemoEnabled()) {
+      return res.status(404).json({ message: 'Demo login is not available.' });
+    }
+    const role = req.body && req.body.role === 'renter' ? 'renter' : 'owner';
+    const ids = await prepareDemoSession();
+    const userId = ids[role];
+    const [rows] = await pool.query('SELECT id, name, token_version FROM users WHERE id = ? LIMIT 1', [userId]);
+    if (rows.length === 0) {
+      return res.status(500).json({ message: 'Demo account is unavailable. Please try again.' });
+    }
+    const user = rows[0];
+    const token = signToken(user.id, Number(user.token_version) || 0);
+    return res.json({ token, name: user.name, id: user.id, demo: true, role });
   } catch (err) {
     return next(err);
   }

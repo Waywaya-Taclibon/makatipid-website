@@ -209,6 +209,35 @@ export async function confirmBookingPayment(intentId: string): Promise<Booking> 
   return response.json()
 }
 
+/**
+ * Demo step 1: open a mock payment intent through our backend. No PayMongo call
+ * is made and no real QR is produced — the booking is priced and validated the
+ * same way, though. Only available to demo accounts.
+ */
+export async function createDemoBookingIntent(
+  propertyId: number,
+  startDate: string,
+  endDate: string
+): Promise<BookingIntent> {
+  const response = await fetch(`${API_BASE}/payments/demo/intents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ propertyId, startDate, endDate }),
+  })
+  if (!response.ok) await throwForStatus('Failed to start the demo payment', response)
+  return response.json()
+}
+
+/** Demo step 2: confirm the mock payment and create the booking. */
+export async function confirmDemoBooking(intentId: string): Promise<Booking> {
+  const response = await fetch(`${API_BASE}/payments/demo/intents/${encodeURIComponent(intentId)}/confirm`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  if (!response.ok) await throwForStatus('Demo confirmation failed', response)
+  return response.json()
+}
+
 export function formatCentavos(centavos: number): string {
   return `₱${(centavos / 100).toLocaleString('en-PH', { maximumFractionDigits: 2 })}`
 }

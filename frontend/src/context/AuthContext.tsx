@@ -38,6 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setUserName(null)
     setUserId(null)
+
+    // Lets DemoProvider drop demo mode the instant the user signs out.
+    window.dispatchEvent(new Event('auth:logout'))
   }
 
   // Any 401 from apiFetch() lands here and ends the session everywhere at once,

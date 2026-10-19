@@ -1,6 +1,16 @@
 import { useState } from 'react'
 import type { PropertyImage } from '../data/properties'
 
+/** Shown when a photo URL 404s (e.g. a demo photo that hasn't been added yet). */
+const FALLBACK_PHOTO = '/photo-placeholder.svg'
+
+function onPhotoError(event: React.SyntheticEvent<HTMLImageElement>) {
+  const img = event.currentTarget
+  if (img.dataset.fallback === '1') return
+  img.dataset.fallback = '1'
+  img.src = FALLBACK_PHOTO
+}
+
 /** Small cover carousel: first image shows, arrows/dots flip through the rest. */
 export default function PhotoCarousel({
   images,
@@ -29,7 +39,13 @@ export default function PhotoCarousel({
 
   return (
     <div className={`relative overflow-hidden ${className}`}>
-      <img src={current.url} alt={alt} className={`w-full object-cover ${imgClassName}`} loading="lazy" />
+      <img
+        src={current.url}
+        alt={alt}
+        className={`w-full object-cover ${imgClassName}`}
+        loading="lazy"
+        onError={onPhotoError}
+      />
       {images.length > 1 && (
         <>
           <span className="absolute top-1.5 right-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-black/60 text-white">

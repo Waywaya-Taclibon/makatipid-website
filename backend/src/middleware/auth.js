@@ -32,6 +32,7 @@ function isPublic(req) {
   if (req.path.startsWith('/api/auth/')) return true;
   if (req.method === 'POST' && req.path === '/api/payments/webhook') return true;
   if (req.method === 'GET' && req.path === '/health') return true;
+  if (req.method === 'GET' && req.path === '/api/config') return true;
   if (req.method !== 'GET') return false;
   if (req.path === '/api/properties' || req.path === '/api/properties/') return true;
   if (req.path === '/api/properties/available') return true;
@@ -69,7 +70,7 @@ async function authMiddleware(req, res, next) {
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
   try {
-    const [rows] = await pool.query('SELECT id, name, email, role, token_version FROM users WHERE id = ? LIMIT 1', [userId]);
+    const [rows] = await pool.query('SELECT id, name, email, role, token_version, is_demo FROM users WHERE id = ? LIMIT 1', [userId]);
     if (rows.length === 0) {
       if (publicRoute) return next();
       return res.status(401).json({ message: 'User not found' });
@@ -79,7 +80,7 @@ async function authMiddleware(req, res, next) {
       if (publicRoute) return next();
       return res.status(401).json({ message: 'Session expired. Please log in again.' });
     }
-    req.user = { id: user.id, name: user.name, email: user.email, role: user.role };
+    req.user = { id: user.id, name: user.name, email: user.email, role: user.role, isDemo: Boolean(user.is_demo) };
     return next();
   } catch (err) {
     return next(err);

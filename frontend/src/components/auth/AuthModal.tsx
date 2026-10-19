@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useAuthModal } from '../../context/AuthModalContext'
+import DemoButtons from '../DemoButtons'
 import LoginForm from './LoginForm'
 import RegisterForm from './RegisterForm'
 
@@ -82,6 +83,8 @@ export default function AuthModal() {
         ) : (
           <RegisterForm onSwitchMode={() => openAuth('login')} />
         )}
+
+        <DemoButtons variant="modal" />
       </div>
     </div>,
     document.body

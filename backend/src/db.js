@@ -65,6 +65,39 @@ async function ensureUserProfileColumns() {
   }
 }
 
+// Adds the is_demo marker to pre-existing databases (fresh installs get it from
+// schema.sql). Demo accounts are shared throwaway users the one-click demo logs
+// into; the flag lets us identify and reset them without touching real users.
+async function ensureUserDemoColumn() {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN is_demo TINYINT(1) NOT NULL DEFAULT 0');
+  } catch (err) {
+    // ER_DUP_FIELDNAME (1060): column already exists — nothing to do.
+    if (err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME')) return;
+    throw err;
+  }
+}
+
+// Tiny key/value store for server-side state that must survive restarts (the
+// timestamp of the last demo reset, so a reboot doesn't wipe demo data early).
+async function ensureAppMetaTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      k VARCHAR(64) NOT NULL PRIMARY KEY,
+      v VARCHAR(255) NOT NULL
+    )
+  `);
+}
+
+async function getAppMeta(key) {
+  const [rows] = await pool.query('SELECT v FROM app_meta WHERE k = ? LIMIT 1', [key]);
+  return rows.length > 0 ? rows[0].v : null;
+}
+
+async function setAppMeta(key, value) {
+  await pool.query('INSERT INTO app_meta (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', [key, value]);
+}
+
 // Creates the payments ledger on pre-existing databases (fresh installs get it from schema.sql).
 async function ensurePaymentsTable() {
   await pool.query(`
@@ -171,4 +204,4 @@ async function ensurePropertyClientRequestId() {
   }
 }
 
-module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId };
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureAppMetaTable, getAppMeta, setAppMeta, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId };

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useAuthModal } from '../../context/AuthModalContext'
+import DemoButtons from '../DemoButtons'
 import { CONTACT } from '../../data/contact'
 
 export default function Footer() {
@@ -67,6 +68,7 @@ export default function Footer() {
                     Log in
                   </button>
                 </li>
+                <DemoButtons variant="footer" />
               </>
             )}
             {CONTACT.email && (

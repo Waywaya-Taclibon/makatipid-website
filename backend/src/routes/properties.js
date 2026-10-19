@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db');
+const { demoPhotos } = require('../demo');
 const { parseDateOnly, toDateOnlyString, manilaTodayDateOnly, toDateTimeString, HOLD_MINUTES } = require('../utils/pricing');
 
 const router = express.Router();
@@ -406,6 +407,23 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// Demo listings can't upload to Cloudinary, so the first couple of entries in
+// the bundled demo photo set stand in as their photos.
+async function attachDemoPhotos(propertyId) {
+  const photos = demoPhotos();
+  if (photos.length === 0) return [];
+  const chosen = photos.slice(0, Math.min(3, photos.length));
+  const rows = [];
+  for (let i = 0; i < chosen.length; i += 1) {
+    const [result] = await pool.query(
+      'INSERT INTO property_images (property_id, image_url, public_id, sort_order) VALUES (?, ?, ?, ?)',
+      [propertyId, chosen[i], `demo:${chosen[i]}`, i]
+    );
+    rows.push({ id: result.insertId, url: chosen[i], sortOrder: i });
+  }
+  return rows;
+}
+
 function pickPropertyFields(body) {
   return [
     body.lotName ?? null,
@@ -459,7 +477,8 @@ router.post('/', async (req, res, next) => {
         b.smokingAllowed ?? null, b.modificationsAllowed ?? null, clientRequestId]
     );
     const row = await findById(result.insertId);
-    return res.json(toResponse(row, false, [], true));
+    const images = req.user.isDemo ? await attachDemoPhotos(result.insertId) : [];
+    return res.json(toResponse(row, false, images, true));
   } catch (err) {
     // Concurrent double-submit: the unique index rejects the loser; return the
     // row the winning request inserted.
@@ -601,7 +620,10 @@ router.delete('/:id', async (req, res, next) => {
       const [photos] = await pool.query('SELECT public_id FROM property_images WHERE property_id = ?', [
         req.params.id,
       ]);
-      photoIds = photos.map((p) => p.public_id);
+      photoIds = photos
+        .map((p) => p.public_id)
+        // Synthetic demo ids ("demo:/demo-photos/…") never reached Cloudinary.
+        .filter((pid) => pid && !String(pid).startsWith('demo:'));
       await pool.query('DELETE FROM property_images WHERE property_id = ?', [req.params.id]);
     } catch {
       // Photo cleanup must never block the delete itself.

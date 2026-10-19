@@ -8,6 +8,14 @@ interface PropertyDetailsModalProps {
   onBook: () => void
 }
 
+/** Fallback for photos that fail to load (e.g. bundled demo photos not yet added). */
+function onPhotoError(event: React.SyntheticEvent<HTMLImageElement>) {
+  const img = event.currentTarget
+  if (img.dataset.fallback === '1') return
+  img.dataset.fallback = '1'
+  img.src = '/photo-placeholder.svg'
+}
+
 function formatPrice(price: number) {
   return `₱${price.toLocaleString('en-PH')}/mo`
 }
@@ -80,7 +88,7 @@ export default function PropertyDetailsModal({ property, onClose, onBook }: Prop
         {activePhoto && (
           <div className="mt-3">
             <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-              <img src={activePhoto.url} alt={`${property.lotName} photo ${Math.min(galleryIndex, photos.length - 1) + 1}`} className="w-full h-52 object-cover" />
+              <img src={activePhoto.url} alt={`${property.lotName} photo ${Math.min(galleryIndex, photos.length - 1) + 1}`} className="w-full h-52 object-cover" onError={onPhotoError} />
             </div>
             {photos.length > 1 && (
               <div className="flex gap-2 mt-2">
@@ -91,7 +99,7 @@ export default function PropertyDetailsModal({ property, onClose, onBook }: Prop
                     onClick={() => setGalleryIndex(i)}
                     className={`rounded-lg overflow-hidden border-2 transition-all ${i === Math.min(galleryIndex, photos.length - 1) ? 'border-blue-500' : 'border-transparent opacity-70 hover:opacity-100'}`}
                   >
-                    <img src={photo.url} alt={`${property.lotName} thumbnail ${i + 1}`} className="w-16 h-12 object-cover" loading="lazy" />
+                    <img src={photo.url} alt={`${property.lotName} thumbnail ${i + 1}`} className="w-16 h-12 object-cover" loading="lazy" onError={onPhotoError} />
                   </button>
                 ))}
               </div>

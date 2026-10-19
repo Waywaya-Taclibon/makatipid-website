@@ -12,6 +12,7 @@ const rentalLogRoutes = require('./routes/rentallog');
 const paymentRoutes = require('./routes/payments');
 const propertyImageRoutes = require('./routes/propertyImages');
 const messageRoutes = require('./routes/messages');
+const configRoutes = require('./routes/config');
 const healthRoutes = require('./routes/health');
 
 const app = express();
@@ -115,6 +116,7 @@ app.use('/api/properties', propertyRoutes);
 app.use('/api/rentallog', rentalLogRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api', configRoutes);
 app.use('/', healthRoutes);
 
 // eslint-disable-next-line no-unused-vars
@@ -130,11 +132,38 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, sweepExpiredConversations } = require('./db');
+  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureAppMetaTable, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, sweepExpiredConversations } = require('./db');
+  const { isDemoEnabled, ensureDemoData, resetDemoData, msUntilNextReset, shouldResetOnBoot } = require('./demo');
+
+  // Demo data is rebuilt on a fixed 6-hour cycle (00/06/12/18 Manila). Re-arm a
+  // timer for the next boundary after each run.
+  function scheduleDemoReset() {
+    const timer = setTimeout(async () => {
+      try {
+        await resetDemoData();
+      } catch (e) {
+        console.warn('Demo reset failed:', e.message);
+      }
+      scheduleDemoReset();
+    }, msUntilNextReset());
+    timer.unref();
+  }
+
+  // At boot, only reset when a slot was actually missed — a routine restart
+  // (deploy, free-tier spin-down) must not wipe a tester's data mid-visit.
+  async function initDemo() {
+    if (!isDemoEnabled()) return;
+    await ensureDemoData();
+    if (await shouldResetOnBoot()) await resetDemoData();
+    scheduleDemoReset();
+  }
+
   checkConnection()
     .then(() => console.log('MySQL connected'))
     .then(() => ensureUserTokenVersionColumn())
     .then(() => ensureUserProfileColumns())
+    .then(() => ensureUserDemoColumn())
+    .then(() => ensureAppMetaTable())
     .then(() => ensurePaymentsTable())
     .then(() => ensurePropertyCoordinatePrecision())
     .then(() => ensurePropertyImagesTable())
@@ -142,6 +171,8 @@ if (require.main === module) {
     .then(() => ensureMessagingTables())
     // Clear any chats that expired while the server was down.
     .then(() => sweepExpiredConversations())
+    // Seed/refresh the demo marketplace (no-op when the demo is disabled).
+    .then(() => initDemo())
     .catch((e) => console.warn('MySQL not reachable yet:', e.message))
     .finally(() => {
       app.listen(PORT, () => console.log(`Backend listening on :${PORT}`));

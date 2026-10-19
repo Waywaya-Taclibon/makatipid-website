@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useAuthModal, type AuthMode } from '../../context/AuthModalContext'
 import LandingBackdrop from '../../components/public/LandingBackdrop'
+import DemoButtons from '../../components/DemoButtons'
 import SearchBar from '../../components/search/SearchBar'
 import { toSearchParams } from '../../components/search/searchForm'
 
@@ -97,6 +98,8 @@ export default function LandingPage() {
               </>
             )}
           </div>
+
+          {!token && <DemoButtons variant="hero" />}
         </div>
       </section>
 

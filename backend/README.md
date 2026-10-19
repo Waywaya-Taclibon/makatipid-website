@@ -23,8 +23,12 @@ Health check: `GET http://localhost:8080/health` -> `OK`.
 - `POST /api/rentallog`, `GET /api/rentallog/my`, `GET /api/rentallog/property/:propertyId`
 - `PUT /api/rentallog/:id/end`, `DELETE /api/rentallog/:id`
 - `POST /api/payments/intents`, `GET /api/payments/intents/:intentId`, `POST /api/payments/intents/:intentId/confirm`
+- `GET /api/config` -> `{ demoLoginEnabled, demoPhotos }` (public)
+- `POST /api/auth/demo` -> `{token, name, id, demo, role}` (one-click demo; no password)
+- `POST /api/payments/demo/intents`, `POST /api/payments/demo/intents/:intentId/confirm`
+  (demo accounts only; mock QR + instant booking, no PayMongo call)
 
-Auth: Bearer JWT (`sub` = email, 24h). Public: `/api/auth/**`, `GET /api/properties/**`, `GET /health`. Everything else returns `401` when unauthenticated.
+Auth: Bearer JWT (`sub` = user id, 24h). Public: `/api/auth/**`, `GET /api/properties/**`, `GET /api/config`, `GET /health`. Everything else returns `401` when unauthenticated.
 
 Passwords use `argon2` so existing Spring-hashed users can still log in.
 

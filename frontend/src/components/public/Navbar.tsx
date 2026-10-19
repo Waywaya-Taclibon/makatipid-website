@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useAuthModal } from '../../context/AuthModalContext'
+import DemoButtons from '../DemoButtons'
 import ThemeToggle from './ThemeToggle'
 
 const links = [
@@ -79,6 +80,7 @@ export default function Navbar() {
             </>
           ) : (
             <>
+              <DemoButtons variant="compact" />
               <button
                 type="button"
                 onClick={() => openAuth('login')}
@@ -146,6 +148,7 @@ export default function Navbar() {
               </>
             ) : (
               <>
+                <DemoButtons variant="compact" />
                 <button
                   type="button"
                   onClick={() => openAuth('login')}

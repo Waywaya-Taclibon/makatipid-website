@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { pool } = require('../db');
 const paymongo = require('../services/paymongo');
 const { wholeMonths, rangesOverlap, parseDateOnly, toDateOnlyString, manilaTodayDateOnly, toDateTimeString, HOLD_MINUTES } = require('../utils/pricing');
@@ -24,7 +25,9 @@ function toBookingResponse(row) {
 }
 
 async function fetchBookingRow(conn, id) {
-  const query = conn.query || pool.query.bind(pool);
+  // mysql2's query() is a prototype method and needs `this` to be the
+  // connection/pool; extracting it unbound throws "reading 'connection'".
+  const query = conn && typeof conn.query === 'function' ? conn.query.bind(conn) : pool.query.bind(pool);
   const [rows] = await query(
     `SELECT r.id AS log_id, r.status, r.start_date, r.end_date, r.property_id, r.renter_id,
             p.lot_name, p.address, p.price, p.lat, p.lng,
@@ -206,52 +209,54 @@ async function fulfillSucceededIntent(intentData, renterId) {
   }
 }
 
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+// Shared validation + pricing for the real and demo booking flows. Throws an
+// httpError whose `status` the route turns into a response.
+async function prepareBooking(userId, body) {
+  const { propertyId, startDate, endDate } = body || {};
+  const [props] = await pool.query('SELECT id, lot_name, price, archived, owner_id, available_until FROM properties WHERE id = ? LIMIT 1', [
+    propertyId,
+  ]);
+  if (props.length === 0) throw httpError(404, 'Property not found');
+  const property = props[0];
+  if (property.archived) throw httpError(409, 'This property is archived and no longer available for booking.');
+  if (Number(property.owner_id) === Number(userId)) throw httpError(403, 'You cannot book your own property.');
+
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate);
+  if (!start || !end || end < start) throw httpError(400, 'Invalid rental period.');
+  if (start < manilaTodayDateOnly()) throw httpError(400, 'Start date cannot be in the past.');
+  if (property.available_until) {
+    const until = parseDateOnly(property.available_until);
+    if (until && end > until) throw httpError(400, 'Booking extends past the property availability window.');
+  }
+
+  const conflict = await findBookingConflict(property.id, start, end);
+  if (conflict) throw httpError(409, conflictMessage(conflict));
+  const hold = await findBlockingHold(property.id, start, end, null);
+  if (hold) throw httpError(409, 'Someone is currently paying for overlapping dates. Please try again in a few minutes.');
+
+  return { property, start, end, amountCentavos: expectedAmountCentavos(property.price, start, end) };
+}
+
 // POST /api/payments/intents — validate + price server-side, return intent for frontend.
 router.post('/intents', async (req, res, next) => {
   try {
     if (!paymongo.isConfigured()) {
       return res.status(503).json({ message: 'Online payment is not configured on the server (missing PayMongo secret key).' });
     }
-    const { propertyId, startDate, endDate } = req.body || {};
-    const [props] = await pool.query('SELECT id, lot_name, price, archived, owner_id, available_until FROM properties WHERE id = ? LIMIT 1', [
-      propertyId,
-    ]);
-    if (props.length === 0) return res.status(404).json({ message: 'Property not found' });
-    const property = props[0];
-    if (property.archived) {
-      return res.status(409).json({ message: 'This property is archived and no longer available for booking.' });
+    let prepared;
+    try {
+      prepared = await prepareBooking(req.user.id, req.body);
+    } catch (e) {
+      return res.status(e.status || 500).json({ message: e.message });
     }
-    if (Number(property.owner_id) === Number(req.user.id)) {
-      return res.status(403).json({ message: 'You cannot book your own property.' });
-    }
-
-    const start = parseDateOnly(startDate);
-    const end = parseDateOnly(endDate);
-    if (!start || !end || end < start) {
-      return res.status(400).json({ message: 'Invalid rental period.' });
-    }
-    if (start < manilaTodayDateOnly()) {
-      return res.status(400).json({ message: 'Start date cannot be in the past.' });
-    }
-    if (property.available_until) {
-      const until = parseDateOnly(property.available_until);
-      if (until && end > until) {
-        return res.status(400).json({ message: 'Booking extends past the property availability window.' });
-      }
-    }
-
-    const conflict = await findBookingConflict(property.id, start, end);
-    if (conflict) {
-      return res.status(409).json({ message: conflictMessage(conflict) });
-    }
-    const hold = await findBlockingHold(property.id, start, end, null);
-    if (hold) {
-      return res.status(409).json({
-        message: 'Someone is currently paying for overlapping dates. Please try again in a few minutes.',
-      });
-    }
-
-    const amountCentavos = expectedAmountCentavos(property.price, start, end);
+    const { property, start, end, amountCentavos } = prepared;
 
     let intent;
     try {
@@ -371,6 +376,68 @@ router.post('/webhook', async (req, res) => {
       return res.json({ received: true });
     }
     return res.status(502).json({ message: e.message || 'Webhook processing failed' });
+  }
+});
+
+// ── Demo payments ────────────────────────────────────────────────────────────
+// Instant, simulated bookings for demo accounts only. Reuses the real fulfill
+// path so availability / conflict / pricing behave exactly like PayMongo, but no
+// network call is made, no QR is real, and no money moves.
+router.post('/demo/intents', async (req, res, next) => {
+  try {
+    if (!req.user.isDemo) {
+      return res.status(403).json({ message: 'Demo payments are only available in demo mode.' });
+    }
+    let prepared;
+    try {
+      prepared = await prepareBooking(req.user.id, req.body);
+    } catch (e) {
+      return res.status(e.status || 500).json({ message: e.message });
+    }
+    const { property, start, end, amountCentavos } = prepared;
+    const intentId = `demo_${crypto.randomUUID()}`;
+    await pool.query(
+      `INSERT INTO payments (intent_id, property_id, renter_id, amount_centavos, status, start_date, end_date)
+       VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`,
+      [intentId, property.id, req.user.id, amountCentavos, toDateOnlyString(start), toDateOnlyString(end)]
+    );
+    return res.json({ intentId, clientKey: 'demo', amountCentavos, keyMode: 'demo' });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/demo/intents/:intentId/confirm', async (req, res, next) => {
+  try {
+    if (!req.user.isDemo) {
+      return res.status(403).json({ message: 'Demo payments are only available in demo mode.' });
+    }
+    const [rows] = await pool.query('SELECT * FROM payments WHERE intent_id = ? LIMIT 1', [req.params.intentId]);
+    const payment = rows[0];
+    if (!payment) return res.status(404).json({ message: 'Demo payment not found.' });
+    if (Number(payment.renter_id) !== Number(req.user.id)) {
+      return res.status(403).json({ message: 'This payment does not belong to your account.' });
+    }
+    // Fabricate the shape the shared fulfill path expects, standing in for the
+    // PayMongo retrieve call.
+    const synthetic = {
+      id: payment.intent_id,
+      attributes: {
+        status: 'succeeded',
+        amount: Number(payment.amount_centavos),
+        metadata: {
+          propertyId: String(payment.property_id),
+          renterId: String(payment.renter_id),
+          startDate: toDateOnlyString(parseDateOnly(payment.start_date)),
+          endDate: toDateOnlyString(parseDateOnly(payment.end_date)),
+        },
+      },
+    };
+    const { booking } = await fulfillSucceededIntent(synthetic, req.user.id);
+    return res.json(booking);
+  } catch (err) {
+    const status = err.status && Number.isInteger(err.status) ? err.status : 500;
+    return res.status(status).json({ message: err.message || 'Demo payment confirmation failed' });
   }
 });
 
