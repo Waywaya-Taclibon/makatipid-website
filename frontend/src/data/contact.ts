@@ -6,8 +6,8 @@
  * never reach a real inbox by accident. Leave a field as '' to hide that row.
  */
 export const CONTACT = {
-  email: 'hello@makatipid.example',
+  email: 'waywayataclibon.wt@gmail.com',
   phone: '+63 900 000 0000',
-  facebook: '',
+  facebook: 'waywayataclibon',
   instagram: '',
 }
