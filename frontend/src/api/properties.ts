@@ -148,7 +148,7 @@ export async function createProperty(data: CreatePropertyInput): Promise<Propert
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error(`Failed to create property: ${res.status}`)
+  if (!res.ok) await throwDetailed('Failed to create property', res)
   return res.json()
 }
 

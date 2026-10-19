@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { updateMyProfile, validatePhone, validateSocial, type UserProfile } from '../api/users'
 import { useAuth } from '../context/AuthContext'
+import { useAsyncLock } from '../hooks/useAsyncLock'
 
 interface ProfileCompletionModalProps {
   profile: UserProfile
@@ -32,7 +33,7 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
   const [facebook, setFacebook] = useState(profile.facebook ?? '')
   const [instagram, setInstagram] = useState(profile.instagram ?? '')
   const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const { busy: saving, run: runSave } = useAsyncLock()
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -56,28 +57,27 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
       return
     }
 
-    setSaving(true)
-    setError(null)
-    try {
-      // Email is intentionally not editable here (changing it needs the current
-      // password — that flow lives in Account Settings), so we echo it back.
-      const updated = await updateMyProfile({
-        name: name.trim(),
-        email: profile.email,
-        phone: phone.trim(),
-        facebook: facebook.trim(),
-        instagram: instagram.trim(),
-      })
-      // Keep the header/greeting in sync if the name changed.
-      if (token && userId != null) {
-        login(updated.token ?? token, updated.name, updated.id)
+    await runSave(async () => {
+      setError(null)
+      try {
+        // Email is intentionally not editable here (changing it needs the current
+        // password — that flow lives in Account Settings), so we echo it back.
+        const updated = await updateMyProfile({
+          name: name.trim(),
+          email: profile.email,
+          phone: phone.trim(),
+          facebook: facebook.trim(),
+          instagram: instagram.trim(),
+        })
+        // Keep the header/greeting in sync if the name changed.
+        if (token && userId != null) {
+          login(updated.token ?? token, updated.name, updated.id)
+        }
+        onSaved(updated)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not save your details')
       }
-      onSaved(updated)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save your details')
-    } finally {
-      setSaving(false)
-    }
+    })
   }
 
   return createPortal(
@@ -101,7 +101,8 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-xl leading-none px-1 dark:hover:text-slate-200"
+            disabled={saving}
+            className="text-slate-400 hover:text-slate-600 text-xl leading-none px-1 disabled:opacity-50 dark:hover:text-slate-200"
             aria-label="Close"
           >
             ×
@@ -126,6 +127,7 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name"
             required
+            disabled={saving}
             className={`${inputClass} mt-1`}
           />
         </div>
@@ -154,6 +156,7 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
             placeholder="09XX XXX XXXX"
             inputMode="tel"
             required
+            disabled={saving}
             className={`${inputClass} mt-1`}
           />
         </div>
@@ -167,6 +170,7 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
             value={facebook}
             onChange={(e) => setFacebook(e.target.value)}
             placeholder="Profile link or @handle"
+            disabled={saving}
             className={`${inputClass} mt-1`}
           />
         </div>
@@ -180,6 +184,7 @@ export default function ProfileCompletionModal({ profile, onClose, onSaved }: Pr
             value={instagram}
             onChange={(e) => setInstagram(e.target.value)}
             placeholder="Profile link or @handle"
+            disabled={saving}
             className={`${inputClass} mt-1`}
           />
         </div>

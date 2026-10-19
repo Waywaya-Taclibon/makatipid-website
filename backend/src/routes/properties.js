@@ -127,6 +127,20 @@ async function findById(id) {
   return rows[0] || null;
 }
 
+// Idempotency lookup for POST /: a retried add must return the original row.
+async function findOwnedByClientRequestId(ownerId, clientRequestId) {
+  const [rows] = await pool.query(
+    `${SELECT_ALL} WHERE p.owner_id = ? AND p.client_request_id = ? LIMIT 1`,
+    [ownerId, clientRequestId]
+  );
+  return rows[0] || null;
+}
+
+async function respondWithExisting(existing, res) {
+  const images = await imagesByPropertyIds([existing.id]);
+  return res.json(toResponse(existing, false, images.get(existing.id), true));
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const [rows] = await pool.query(SELECT_ALL);
@@ -411,6 +425,7 @@ function pickPropertyFields(body) {
 }
 
 router.post('/', async (req, res, next) => {
+  let clientRequestId = null;
   try {
     const b = req.body || {};
     if (!b.lotName || !b.address || b.price == null || b.lat == null || b.lng == null) {
@@ -420,19 +435,42 @@ router.post('/', async (req, res, next) => {
     if (validationError) {
       return res.status(400).json({ message: validationError });
     }
+    if (b.clientRequestId != null) {
+      if (typeof b.clientRequestId !== 'string' || b.clientRequestId.length > 64) {
+        return res.status(400).json({ message: 'clientRequestId must be a string of 64 characters or fewer' });
+      }
+      clientRequestId = b.clientRequestId.trim() || null;
+    }
+    // A retry of an add that already reached the database returns the original
+    // property instead of inserting a second one (lost response / double event).
+    if (clientRequestId) {
+      const existing = await findOwnedByClientRequestId(req.user.id, clientRequestId);
+      if (existing) return await respondWithExisting(existing, res);
+    }
     const [result] = await pool.query(
       `INSERT INTO properties
         (lot_name, address, price, lat, lng, owner_id, archived, available_until, security_deposit,
-         internet, electricity_included, water_included, pets_allowed, smoking_allowed, modifications_allowed)
-       VALUES (?, ?, ?, ?, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         internet, electricity_included, water_included, pets_allowed, smoking_allowed, modifications_allowed,
+         client_request_id)
+       VALUES (?, ?, ?, ?, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [b.lotName, b.address, b.price, b.lat, b.lng, req.user.id,
         b.availableUntil ?? null, b.securityDeposit ?? null, b.internet ?? null,
         b.electricityIncluded ?? null, b.waterIncluded ?? null, b.petsAllowed ?? null,
-        b.smokingAllowed ?? null, b.modificationsAllowed ?? null]
+        b.smokingAllowed ?? null, b.modificationsAllowed ?? null, clientRequestId]
     );
     const row = await findById(result.insertId);
     return res.json(toResponse(row, false, [], true));
   } catch (err) {
+    // Concurrent double-submit: the unique index rejects the loser; return the
+    // row the winning request inserted.
+    if (clientRequestId && (err.errno === 1062 || err.code === 'ER_DUP_ENTRY')) {
+      try {
+        const existing = await findOwnedByClientRequestId(req.user.id, clientRequestId);
+        if (existing) return await respondWithExisting(existing, res);
+      } catch (lookupErr) {
+        // Fall through to the original error if the lookup itself fails.
+      }
+    }
     return next(err);
   }
 });

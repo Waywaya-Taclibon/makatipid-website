@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { useAsyncLock } from '../hooks/useAsyncLock'
 
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -68,9 +69,10 @@ export default function LocationPicker({
   const [geoError, setGeoError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
-  const [searching, setSearching] = useState(false)
+  const { busy: searching, run: runSearch } = useAsyncLock()
   const [searchError, setSearchError] = useState<string | null>(null)
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lng: number } | null>(null)
+  const locatingLockRef = useRef(false)
 
   const center: [number, number] = hasPin ? [parsedLat, parsedLng] : DEFAULT_CENTER
 
@@ -80,20 +82,24 @@ export default function LocationPicker({
   }
 
   function handleUseMyLocation() {
+    if (locatingLockRef.current) return
     if (!('geolocation' in navigator)) {
       setGeoError('Your browser does not support location lookup.')
       return
     }
+    locatingLockRef.current = true
     setLocating(true)
     setGeoError(null)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         handlePick(pos.coords.latitude, pos.coords.longitude)
         setFlyTarget({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+        locatingLockRef.current = false
         setLocating(false)
       },
       () => {
         setGeoError('Could not get your location. Please search or pin the map manually.')
+        locatingLockRef.current = false
         setLocating(false)
       },
       { enableHighAccuracy: true, timeout: 10000 }
@@ -102,26 +108,25 @@ export default function LocationPicker({
 
   async function handleSearch() {
     const q = query.trim()
-    if (!q || searching) return
-    setSearching(true)
+    if (!q) return
     setSearchError(null)
     setResults([])
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ph&q=${encodeURIComponent(q)}`,
-        { headers: { Accept: 'application/json' } }
-      )
-      if (!res.ok) throw new Error(`Search failed: ${res.status}`)
-      const data = (await res.json()) as SearchResult[]
-      setResults(data)
-      if (data.length === 0) {
-        setSearchError('No matches in the Philippines — try a nearby city or landmark.')
+    await runSearch(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ph&q=${encodeURIComponent(q)}`,
+          { headers: { Accept: 'application/json' } }
+        )
+        if (!res.ok) throw new Error(`Search failed: ${res.status}`)
+        const data = (await res.json()) as SearchResult[]
+        setResults(data)
+        if (data.length === 0) {
+          setSearchError('No matches in the Philippines — try a nearby city or landmark.')
+        }
+      } catch {
+        setSearchError('Search is unavailable right now. Please zoom in and pin manually.')
       }
-    } catch {
-      setSearchError('Search is unavailable right now. Please zoom in and pin manually.')
-    } finally {
-      setSearching(false)
-    }
+    })
   }
 
   function handleSelectResult(r: SearchResult) {

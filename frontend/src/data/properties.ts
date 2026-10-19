@@ -57,6 +57,8 @@ export interface CreatePropertyInput {
   price: number
   lat: number
   lng: number
+  /** Optional idempotency key: retrying the same add cannot create a duplicate. */
+  clientRequestId?: string
   availableUntil?: string | null
   securityDeposit?: number | null
   internet?: InternetOption | null

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { loginRequest } from '../../api/auth'
 import { useAuth } from '../../context/AuthContext'
 import { useAuthModal } from '../../context/AuthModalContext'
+import { useAsyncLock } from '../../hooks/useAsyncLock'
 
 const inputClass =
   'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500'
@@ -12,7 +13,7 @@ export default function LoginForm({ onSwitchMode }: { onSwitchMode: () => void }
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false) // 1. Visibility state
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const { busy: loading, run: runSubmit } = useAsyncLock()
   const { login } = useAuth()
   const { closeAuth, returnTo } = useAuthModal()
   const navigate = useNavigate()
@@ -21,54 +22,55 @@ export default function LoginForm({ onSwitchMode }: { onSwitchMode: () => void }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await loginRequest(email, password)
-      login(res.token, res.name, res.id)
-      closeAuth()
-      navigate(destination)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
-    } finally {
-      setLoading(false)
-    }
+    await runSubmit(async () => {
+      setError(null)
+      try {
+        const res = await loginRequest(email, password)
+        login(res.token, res.name, res.id)
+        closeAuth()
+        navigate(destination)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Login failed')
+      }
+    })
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3">
       {error && <p className="text-sm text-red-500 dark:text-red-400">{error}</p>}
 
-      <input
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        type="email"
-        placeholder="Email"
-        autoComplete="email"
-        required
-        className={inputClass}
-      />
-
-      {/* 2. Relative wrapper for absolute positioning */}
-      <div className="relative flex items-center">
+      <fieldset disabled={loading} className="flex flex-col gap-3 border-0 p-0 m-0 min-w-0">
         <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          type={showPassword ? 'text' : 'password'} // 3. Dynamic type based on state
-          placeholder="Password"
-          autoComplete="current-password"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          placeholder="Email"
+          autoComplete="email"
           required
-          className={`${inputClass} pr-10`} // pr-10 prevents text overlapping the eye
+          className={inputClass}
         />
-        <button
-          type="button" // 4. Must be type="button" so it doesn't submit the form!
-          onClick={() => setShowPassword(!showPassword)}
-          aria-label={showPassword ? 'Hide password' : 'Show password'}
-          className="absolute right-3 text-slate-400 hover:text-slate-600 text-sm select-none dark:hover:text-slate-200"
-        >
-          {showPassword ? '🙈' : '👁️'}
-        </button>
-      </div>
+
+        {/* 2. Relative wrapper for absolute positioning */}
+        <div className="relative flex items-center">
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type={showPassword ? 'text' : 'password'} // 3. Dynamic type based on state
+            placeholder="Password"
+            autoComplete="current-password"
+            required
+            className={`${inputClass} pr-10`} // pr-10 prevents text overlapping the eye
+          />
+          <button
+            type="button" // 4. Must be type="button" so it doesn't submit the form!
+            onClick={() => setShowPassword(!showPassword)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className="absolute right-3 text-slate-400 hover:text-slate-600 text-sm select-none dark:hover:text-slate-200"
+          >
+            {showPassword ? '🙈' : '👁️'}
+          </button>
+        </div>
+      </fieldset>
 
       <button
         disabled={loading}
@@ -83,7 +85,8 @@ export default function LoginForm({ onSwitchMode }: { onSwitchMode: () => void }
         <button
           type="button"
           onClick={onSwitchMode}
-          className="text-amber-600 font-semibold dark:text-amber-400"
+          disabled={loading}
+          className="text-amber-600 font-semibold disabled:opacity-50 dark:text-amber-400"
         >
           Sign up
         </button>

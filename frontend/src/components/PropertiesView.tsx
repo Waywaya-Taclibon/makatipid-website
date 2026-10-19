@@ -16,6 +16,7 @@ import Swal from 'sweetalert2'
 import { useAuth } from '../context/AuthContext'
 import { cancelSwal } from '../utils/swal'
 import { fetchMyProfile, isProfileComplete, type UserProfile } from '../api/users'
+import { useAsyncLock } from '../hooks/useAsyncLock'
 
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -63,6 +64,12 @@ export default function PropertiesView() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const profilePromptedRef = useRef(false)
+
+  // Defence in depth: the modals lock themselves, but parent handlers also
+  // refuse overlapping requests in case a second event slips through.
+  const { busy: actionBusy, run: runAction } = useAsyncLock()
+  const addInFlightRef = useRef(false)
+  const editInFlightRef = useRef(false)
 
   useEffect(() => {
     if (!isActive || properties.length > 0) return
@@ -211,74 +218,74 @@ export default function PropertiesView() {
 
   async function handleArchiveToggle() {
     if (!selected) return
-    try {
-      const updated = selected.archived
-        ? await unarchiveProperty(selected.id)
-        : await archiveProperty(selected.id)
-      updatePropertyInList(updated)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update property')
-    }
+    await runAction(async () => {
+      try {
+        const updated = selected.archived
+          ? await unarchiveProperty(selected.id)
+          : await archiveProperty(selected.id)
+        updatePropertyInList(updated)
+        setError(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to update property')
+      }
+    })
   }
 
   async function handleRemove() {
     if (!selected) return
-
-    const logs = bookingsByProperty[selected.id]
-
-    // Blocked while an upcoming booking exists — removing would strand the renter.
-    const pending = logs ? getUpcomingBooking(logs) : null
-    if (pending) {
-      await cancelSwal.fire({
-        icon: 'warning',
-        title: `Cannot remove "${selected.lotName}"`,
-        text:
-          `It has an upcoming booking ` +
-          `(${formatBookingDate(pending.startDate)} — ${pending.endDate ? formatBookingDate(pending.endDate) : 'Ongoing'}). ` +
-          `Cancel that booking first.`,
-        confirmButtonText: 'Got it',
-        confirmButtonColor: '#4a9e4a',
-      })
-      return
-    }
-
-    // Booking history must be preserved: archive instead of hard-deleting.
-    if (logs && logs.length > 0) {
-      const confirmed = window.confirm(
-        `"${selected.lotName}" has booking history, so it will be archived (hidden from renters) instead of permanently deleted. Continue?`
-      )
-      if (!confirmed) return
+    const target = selected
+    await runAction(async () => {
       try {
-        const updated = await archiveProperty(selected.id)
-        updatePropertyInList(updated)
+        const logs = bookingsByProperty[target.id]
+
+        // Blocked while an upcoming booking exists — removing would strand the renter.
+        const pending = logs ? getUpcomingBooking(logs) : null
+        if (pending) {
+          await cancelSwal.fire({
+            icon: 'warning',
+            title: `Cannot remove "${target.lotName}"`,
+            text:
+              `It has an upcoming booking ` +
+              `(${formatBookingDate(pending.startDate)} — ${pending.endDate ? formatBookingDate(pending.endDate) : 'Ongoing'}). ` +
+              `Cancel that booking first.`,
+            confirmButtonText: 'Got it',
+            confirmButtonColor: '#4a9e4a',
+          })
+          return
+        }
+
+        // Booking history must be preserved: archive instead of hard-deleting.
+        if (logs && logs.length > 0) {
+          const confirmed = window.confirm(
+            `"${target.lotName}" has booking history, so it will be archived (hidden from renters) instead of permanently deleted. Continue?`
+          )
+          if (!confirmed) return
+          const updated = await archiveProperty(target.id)
+          updatePropertyInList(updated)
+          setError(null)
+          return
+        }
+
+        // No bookings on record: permanent delete (the server re-checks and
+        // returns a message if anything blocks it).
+        const confirmed = window.confirm(`Delete "${target.lotName}"? This can't be undone.`)
+        if (!confirmed) return
+
+        await deleteProperty(target.id)
+        const removedId = target.id
+        const remaining = properties.filter((p) => p.id !== removedId)
+        setProperties(remaining)
+        setSelected(remaining[0] ?? null)
+        setBookingsByProperty((prev) => {
+          const next = { ...prev }
+          delete next[removedId]
+          return next
+        })
         setError(null)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to archive property')
+        setError(err instanceof Error ? err.message : 'Failed to remove property')
       }
-      return
-    }
-
-    // No bookings on record: permanent delete (the server re-checks and
-    // returns a message if anything blocks it).
-    const confirmed = window.confirm(`Delete "${selected.lotName}"? This can't be undone.`)
-    if (!confirmed) return
-
-    try {
-      await deleteProperty(selected.id)
-      const removedId = selected.id
-      const remaining = properties.filter((p) => p.id !== removedId)
-      setProperties(remaining)
-      setSelected(remaining[0] ?? null)
-      setBookingsByProperty((prev) => {
-        const next = { ...prev }
-        delete next[removedId]
-        return next
-      })
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete property')
-    }
+    })
   }
   
   const [showAddModal, setShowAddModal] = useState(false)
@@ -294,43 +301,67 @@ export default function PropertiesView() {
   }
 
   async function handleAdd(data: CreatePropertyInput, photos: File[]) {
+    if (addInFlightRef.current) return
+    addInFlightRef.current = true
     try {
       const created = await createProperty(data)
       // Two-step save: the property must exist before photos can attach to it.
+      let photoWarning: string | null = null
       if (photos.length > 0) {
         try {
           created.images = await uploadPropertyImages(created.id, photos)
         } catch (photoErr) {
-          setError(
-            `Property saved, but photo upload failed: ${photoErr instanceof Error ? photoErr.message : 'unknown error'}. You can add photos from Edit.`
-          )
+          photoWarning = photoErr instanceof Error ? photoErr.message : 'unknown error'
         }
       }
       setProperties((prev) => [...prev, created])
       setSelected(created)
+      // Always close on partial success: retrying from this modal would POST
+      // the property again. Photos can be added later from Edit.
       setShowAddModal(false)
-      await Swal.fire({
-        returnFocus: false,
-        icon: 'success',
-        iconColor: '#4a9e4a',
-        title: 'Property added!',
-        text: `"${created.lotName}" is now listed and visible to renters.`,
-        confirmButtonText: 'Nice!',
-        confirmButtonColor: '#4a9e4a',
-        customClass: {
-          popup: 'rounded-2xl!',
-          title: 'text-lg! font-bold! text-slate-800! dark:text-slate-100!',
-        },
-      })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add property')
+      if (photoWarning) {
+        await Swal.fire({
+          returnFocus: false,
+          icon: 'warning',
+          iconColor: '#e05d44',
+          title: 'Property saved — photos failed',
+          text: `"${created.lotName}" was listed, but the photo upload failed: ${photoWarning}. Reopen Edit to add photos.`,
+          confirmButtonText: 'Got it',
+          confirmButtonColor: '#4a9e4a',
+          customClass: {
+            popup: 'rounded-2xl!',
+            title: 'text-lg! font-bold! text-slate-800! dark:text-slate-100!',
+          },
+        })
+      } else {
+        await Swal.fire({
+          returnFocus: false,
+          icon: 'success',
+          iconColor: '#4a9e4a',
+          title: 'Property added!',
+          text: `"${created.lotName}" is now listed and visible to renters.`,
+          confirmButtonText: 'Nice!',
+          confirmButtonColor: '#4a9e4a',
+          customClass: {
+            popup: 'rounded-2xl!',
+            title: 'text-lg! font-bold! text-slate-800! dark:text-slate-100!',
+          },
+        })
+      }
+    } finally {
+      addInFlightRef.current = false
     }
   }
 
   async function handleEdit(data: CreatePropertyInput, photos: PhotoItem[]) {
     if (!selected) return
+    if (editInFlightRef.current) return
+    editInFlightRef.current = true
+    const propertyId = selected.id
+    let detailsSaved = false
     try {
-      const updated = await updateProperty(selected.id, data)
+      const updated = await updateProperty(propertyId, data)
+      detailsSaved = true
       // Photo plan vs. what the server currently has.
       const originalIds = (selected.images ?? []).map((img) => img.id)
       const keptIds = photos.filter((p) => p.kind === 'saved' && p.image).map((p) => (p.image as PropertyImage).id)
@@ -340,13 +371,12 @@ export default function PropertiesView() {
       const orderChanged =
         keptIds.length !== originalIds.length || keptIds.some((id, i) => originalIds[i] !== id)
       // Uploads first (new ids needed before the final order can be written).
-      let fresh = updated
       if (addedFiles.length > 0) {
-        await uploadPropertyImages(selected.id, addedFiles)
+        await uploadPropertyImages(propertyId, addedFiles)
       }
       if (keptIds.length > 0 || addedFiles.length > 0) {
         // Rebuild the full id sequence in the user's final arrangement.
-        const latest = await fetchProperty(selected.id)
+        const latest = await fetchProperty(propertyId)
         // New uploads have no stable key: match them in upload order.
         const newIds = latest.images
           .filter((img) => !currentIds.has(img.id))
@@ -359,18 +389,43 @@ export default function PropertiesView() {
           else if (p.kind === 'new' && p.file && cursor < newIds.length) fullOrder.push(newIds[cursor++])
         }
         if (fullOrder.length > 0 && (orderChanged || addedFiles.length > 0)) {
-          await reorderPropertyImages(selected.id, fullOrder)
+          await reorderPropertyImages(propertyId, fullOrder)
         }
       }
       for (const id of removedIds) {
-        await deletePropertyImage(selected.id, id)
+        await deletePropertyImage(propertyId, id)
       }
-      fresh = await fetchProperty(selected.id)
+      const fresh = await fetchProperty(propertyId)
       updatePropertyInList(fresh)
       setShowEditModal(false)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update property')
+      // Details never changed: safe to keep the modal open for a clean retry.
+      if (!detailsSaved) throw err
+      // A later photo step failed: resync the listing and close, because
+      // retrying from the stale modal could upload or delete photos twice.
+      try {
+        const fresh = await fetchProperty(propertyId)
+        updatePropertyInList(fresh)
+      } catch {
+        // Ignore resync failure; the warning below still tells the user.
+      }
+      setShowEditModal(false)
+      await Swal.fire({
+        returnFocus: false,
+        icon: 'warning',
+        iconColor: '#e05d44',
+        title: 'Details saved — photos need attention',
+        text: `${err instanceof Error ? err.message : 'Some photo changes failed'}. The listing was refreshed; reopen Edit to finish updating the photos.`,
+        confirmButtonText: 'Got it',
+        confirmButtonColor: '#4a9e4a',
+        customClass: {
+          popup: 'rounded-2xl!',
+          title: 'text-lg! font-bold! text-slate-800! dark:text-slate-100!',
+        },
+      })
+    } finally {
+      editInFlightRef.current = false
     }
   }
 
@@ -389,22 +444,22 @@ export default function PropertiesView() {
                     : 'Remove property'}
                 </div>
               )}
-              <button onClick={handleAddPropertyClick} className="bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all" onMouseEnter={() => setHoveredAction('add')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('add')} onBlur={() => setHoveredAction(null)}>
+              <button onClick={handleAddPropertyClick} disabled={actionBusy} className="bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed" onMouseEnter={() => setHoveredAction('add')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('add')} onBlur={() => setHoveredAction(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                 </svg>
               </button>
-              <button onClick={() => setShowEditModal(true)} disabled={!selected} className="bg-blue-500 hover:bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed" onMouseEnter={() => setHoveredAction('edit')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('edit')} onBlur={() => setHoveredAction(null)}>
+              <button onClick={() => setShowEditModal(true)} disabled={!selected || actionBusy} className="bg-blue-500 hover:bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed" onMouseEnter={() => setHoveredAction('edit')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('edit')} onBlur={() => setHoveredAction(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
               </button>
-              <button onClick={handleArchiveToggle} disabled={!selected} className={`rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-all ${!selected ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500' : selected.archived ? 'bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`} onMouseEnter={() => setHoveredAction('archive')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('archive')} onBlur={() => setHoveredAction(null)}>
+              <button onClick={handleArchiveToggle} disabled={!selected || actionBusy} className={`rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed ${!selected ? 'bg-slate-200 text-slate-400 dark:bg-slate-700 dark:text-slate-500' : selected.archived ? 'bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`} onMouseEnter={() => setHoveredAction('archive')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('archive')} onBlur={() => setHoveredAction(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                 </svg>
               </button>
-              <button onClick={handleRemove} disabled={!selected} className="bg-[#e05d44] hover:bg-[#c04a33] text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed" onMouseEnter={() => setHoveredAction('remove')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('remove')} onBlur={() => setHoveredAction(null)}>
+              <button onClick={handleRemove} disabled={!selected || actionBusy} className="bg-[#e05d44] hover:bg-[#c04a33] text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed" onMouseEnter={() => setHoveredAction('remove')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('remove')} onBlur={() => setHoveredAction(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>

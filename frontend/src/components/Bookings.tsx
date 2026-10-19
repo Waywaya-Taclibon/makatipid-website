@@ -4,6 +4,7 @@ import { cancelSwal } from '../utils/swal'
 import type { Booking } from '../data/rentallog'
 import { cancelBooking, fetchMyBookings } from '../api/rentallog'
 import { formatBookingDate, getDynamicStatus } from '../utils/bookingStatus'
+import { useAsyncLock } from '../hooks/useAsyncLock'
 
 function formatPrice(price: number) {
   return `₱${price.toLocaleString('en-PH')}/mo`
@@ -27,6 +28,7 @@ export default function Bookings() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const { busy: cancelBusy, run: runCancel } = useAsyncLock()
 
   useEffect(() => {
     if (!isActive || bookings.length > 0) return
@@ -41,38 +43,40 @@ export default function Bookings() {
   }, [isActive, bookings.length])
 
   async function handleCancel(b: Booking) {
-    const status = getDynamicStatus(b)
-    const dateRange = `${formatDate(b.startDate)} — ${b.endDate ? formatDate(b.endDate) : 'Ongoing'}`
-    const confirmed = await cancelSwal.fire({
-      icon: 'warning',
-      title: status === 'ACTIVE' ? 'Cancel ongoing stay?' : 'Cancel this booking?',
-      buttonsStyling: true,
-      text:
-        status === 'ACTIVE'
-          ? `"${b.lotName}" (${dateRange}). This stay is ongoing, cancelling removes it entirely and frees the property immediately. This cannot be undone.`
-          : `"${b.lotName}" (${dateRange}) will be removed entirely. This cannot be undone.`,
-      showCancelButton: true,
-      confirmButtonText: 'Yes, cancel it',
-      cancelButtonText: 'Keep booking',
-    })
-    if (!confirmed.isConfirmed) return
-
-    setCancellingId(b.id)
-    try {
-      await cancelBooking(b.id)
-      setBookings((prev) => prev.filter((x) => x.id !== b.id))
-      setError(null)
-    } catch (err) {
-      await cancelSwal.fire({
-        icon: 'error',
-        title: 'Could not cancel booking',
-        text: err instanceof Error ? err.message : 'Failed to cancel booking',
-        confirmButtonText: 'OK',
-        confirmButtonColor: '#4a9e4a',
+    await runCancel(async () => {
+      const status = getDynamicStatus(b)
+      const dateRange = `${formatDate(b.startDate)} — ${b.endDate ? formatDate(b.endDate) : 'Ongoing'}`
+      const confirmed = await cancelSwal.fire({
+        icon: 'warning',
+        title: status === 'ACTIVE' ? 'Cancel ongoing stay?' : 'Cancel this booking?',
+        buttonsStyling: true,
+        text:
+          status === 'ACTIVE'
+            ? `"${b.lotName}" (${dateRange}). This stay is ongoing, cancelling removes it entirely and frees the property immediately. This cannot be undone.`
+            : `"${b.lotName}" (${dateRange}) will be removed entirely. This cannot be undone.`,
+        showCancelButton: true,
+        confirmButtonText: 'Yes, cancel it',
+        cancelButtonText: 'Keep booking',
       })
-    } finally {
-      setCancellingId(null)
-    }
+      if (!confirmed.isConfirmed) return
+
+      setCancellingId(b.id)
+      try {
+        await cancelBooking(b.id)
+        setBookings((prev) => prev.filter((x) => x.id !== b.id))
+        setError(null)
+      } catch (err) {
+        await cancelSwal.fire({
+          icon: 'error',
+          title: 'Could not cancel booking',
+          text: err instanceof Error ? err.message : 'Failed to cancel booking',
+          confirmButtonText: 'OK',
+          confirmButtonColor: '#4a9e4a',
+        })
+      } finally {
+        setCancellingId(null)
+      }
+    })
   }
 
   return (
@@ -107,7 +111,7 @@ export default function Bookings() {
                 {cancellable && (
                   <button
                     onClick={() => handleCancel(b)}
-                    disabled={cancellingId === b.id}
+                    disabled={cancelBusy}
                     className="mt-auto text-xs font-semibold px-3 py-1 rounded-full border border-red-300 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed dark:border-red-500/40 dark:text-red-400 dark:hover:bg-red-500/10"
                   >
                     {cancellingId === b.id ? 'Cancelling…' : 'Cancel Booking'}

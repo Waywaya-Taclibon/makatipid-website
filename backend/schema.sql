@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS properties (
   pets_allowed TINYINT(1) NULL,
   smoking_allowed TINYINT(1) NULL,
   modifications_allowed TINYINT(1) NULL,
-  CONSTRAINT fk_properties_owner FOREIGN KEY (owner_id) REFERENCES users (id)
+  client_request_id VARCHAR(64) NULL,
+  CONSTRAINT fk_properties_owner FOREIGN KEY (owner_id) REFERENCES users (id),
+  UNIQUE KEY uq_properties_owner_client_request (owner_id, client_request_id)
 );
 
 CREATE TABLE IF NOT EXISTS rentallog (

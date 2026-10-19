@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { API_BASE } from '../api/http'
 import { validatePhone, validateSocial } from '../api/users'
+import { useAsyncLock } from '../hooks/useAsyncLock'
 
 export default function AccountSettings() {
   const { userName, token, login, logout } = useAuth()
@@ -18,7 +19,7 @@ export default function AccountSettings() {
   const [currentPassword, setCurrentPassword] = useState('')
   const [originalEmail, setOriginalEmail] = useState('')
 
-  const [loading, setLoading] = useState(false)
+  const { busy: saving, run: runSave } = useAsyncLock()
   // Guards Save until the stored details are known: submitting a blank phone
   // before the profile loads would clear the saved number.
   const [profileLoaded, setProfileLoaded] = useState(false)
@@ -85,53 +86,52 @@ export default function AccountSettings() {
       return
     }
 
-    setLoading(true)
-    setError(null)
-    setSuccess(null)
+    await runSave(async () => {
+      setError(null)
+      setSuccess(null)
 
-    try {
-      const emailChanged = formData.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase()
-      const response = await fetch(`${API_BASE}/users/me`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ ...formData, currentPassword: emailChanged ? currentPassword : undefined }),
-      })
+      try {
+        const emailChanged = formData.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase()
+        const response = await fetch(`${API_BASE}/users/me`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ ...formData, currentPassword: emailChanged ? currentPassword : undefined }),
+        })
 
-      if (response.status === 401) {
-        logout()
-        navigate('/')
-        throw new Error('Session expired. Please log in again.')
-      }
-      if (response.status === 403) {
-      const body = await response.json().catch(() => null)
-      throw new Error((body && body.message) || 'Current password is incorrect.')
-      }
-
-      if (!response.ok) {
+        if (response.status === 401) {
+          logout()
+          navigate('/')
+          throw new Error('Session expired. Please log in again.')
+        }
+        if (response.status === 403) {
         const body = await response.json().catch(() => null)
-        throw new Error((body && body.message) || 'Failed to update account details')
-      }
+        throw new Error((body && body.message) || 'Current password is incorrect.')
+        }
 
-      const updatedUser = await response.json()
-      // The server rotates the token on email change: adopt it so this device
-      // stays logged in instead of 401ing on the next request.
-      if (updatedUser.token) {
-        login(updatedUser.token, updatedUser.name, updatedUser.id)
-      } else if (updatedUser.name) {
-        login(token, updatedUser.name, updatedUser.id)
-      }
-      setOriginalEmail(updatedUser.email || formData.email)
-      setCurrentPassword('')
+        if (!response.ok) {
+          const body = await response.json().catch(() => null)
+          throw new Error((body && body.message) || 'Failed to update account details')
+        }
 
-      setSuccess(emailChanged ? 'Account updated successfully! Your other devices were signed out.' : 'Account updated successfully!')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    } finally {
-      setLoading(false)
-    }
+        const updatedUser = await response.json()
+        // The server rotates the token on email change: adopt it so this device
+        // stays logged in instead of 401ing on the next request.
+        if (updatedUser.token) {
+          login(updatedUser.token, updatedUser.name, updatedUser.id)
+        } else if (updatedUser.name) {
+          login(token, updatedUser.name, updatedUser.id)
+        }
+        setOriginalEmail(updatedUser.email || formData.email)
+        setCurrentPassword('')
+
+        setSuccess(emailChanged ? 'Account updated successfully! Your other devices were signed out.' : 'Account updated successfully!')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred')
+      }
+    })
   }
 
   const handleLogout = () => {
@@ -150,7 +150,7 @@ export default function AccountSettings() {
       {error && <p className="text-sm font-medium text-red-500 dark:text-red-400">{error}</p>}
       {success && <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">{success}</p>}
 
-      <div className="flex flex-col gap-4">
+      <fieldset disabled={saving} className="flex flex-col gap-4 border-0 p-0 m-0 min-w-0">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Full Name</label>
           <input
@@ -229,21 +229,22 @@ export default function AccountSettings() {
             />
           </div>
         )}
-      </div>
+      </fieldset>
 
       <div className="flex gap-3">
         <button
           type="submit"
-          disabled={loading || !profileLoaded}
+          disabled={saving || !profileLoaded}
           className="self-start rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
-          {loading ? 'Saving...' : 'Save Changes'}
+          {saving ? 'Saving...' : 'Save Changes'}
         </button>
 
         <button
           type="button"
           onClick={handleLogout}
-          className="self-start rounded-xl bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700"
+          disabled={saving}
+          className="self-start rounded-xl bg-red-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
         >
           Log Out
         </button>

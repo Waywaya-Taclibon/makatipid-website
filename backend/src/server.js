@@ -68,8 +68,19 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: 'Too many requests. Please slow down.' },
 });
+// Property creation is expensive (row + optional photo uploads), so it gets its
+// own tighter limit. GET/PUT/DELETE on the same mount are skipped.
+const propertyCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => req.method !== 'POST' || req.path !== '/',
+  message: { message: 'Too many property submissions. Please try again later.' },
+});
 app.use('/api/auth', authLimiter);
 app.use('/api/payments', paymentsLimiter);
+app.use('/api/properties', propertyCreateLimiter);
 app.use('/api', apiLimiter);
 
 app.use(authMiddleware);
@@ -94,7 +105,7 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable } = require('./db');
+  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId } = require('./db');
   checkConnection()
     .then(() => console.log('MySQL connected'))
     .then(() => ensureUserTokenVersionColumn())
@@ -102,6 +113,7 @@ if (require.main === module) {
     .then(() => ensurePaymentsTable())
     .then(() => ensurePropertyCoordinatePrecision())
     .then(() => ensurePropertyImagesTable())
+    .then(() => ensurePropertyClientRequestId())
     .catch((e) => console.warn('MySQL not reachable yet:', e.message))
     .finally(() => {
       app.listen(PORT, () => console.log(`Backend listening on :${PORT}`));

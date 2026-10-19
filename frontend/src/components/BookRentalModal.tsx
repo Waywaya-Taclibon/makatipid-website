@@ -1,9 +1,10 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import Swal from 'sweetalert2'
 import type { Property } from '../data/properties'
 import type { Booking } from '../data/rentallog'
 import { fetchLogsByProperty } from '../api/rentallog'
+import { useAsyncLock } from '../hooks/useAsyncLock'
 import {
   attachQrPaymentMethod,
   confirmBookingPayment,
@@ -47,7 +48,6 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
 
   const [startDate, setStartDate] = useState(todayStr)
   const [durationMonths, setDurationMonths] = useState(1)
-  const [paying, setPaying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [step, setStep] = useState<'details' | 'payment'>('details')
   const [confirmedAmount, setConfirmedAmount] = useState<number | null>(null)
@@ -55,10 +55,13 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null)
   const [qrRevealed, setQrRevealed] = useState(false)
   const [testUrl, setTestUrl] = useState<string | null>(null)
-  const [verifying, setVerifying] = useState(false)
   const [existingBookings, setExistingBookings] = useState<Booking[]>([])
   const [existingLoading, setExistingLoading] = useState(true)
   const [existingError, setExistingError] = useState<string | null>(null)
+  // Synchronous locks: state alone can miss a same-tick double click.
+  const { busy: paying, run: runPayment } = useAsyncLock()
+  const { busy: verifying, run: runVerify } = useAsyncLock()
+  const revealLockRef = useRef(false)
 
   const endDate = computeEndDate(startDate, durationMonths)
   const totalEstimatedCost = property.price * durationMonths
@@ -172,75 +175,78 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
   }
 
   async function handleGenerateQr() {
-    if (paying) return
     if (isStoredTokenExpired()) {
       setError('Your session has expired. Please log out and log back in, then try again.')
       return
     }
-    setPaying(true)
     setError(null)
-    try {
-      // 1. Our backend validates the booking and opens a Payment Intent.
-      const intent = await createBookingIntent(property.id, startDate, endDate)
-      setIntentId(intent.intentId)
-      setConfirmedAmount(intent.amountCentavos)
+    await runPayment(async () => {
+      try {
+        // 1. Our backend validates the booking and opens a Payment Intent.
+        const intent = await createBookingIntent(property.id, startDate, endDate)
+        setIntentId(intent.intentId)
+        setConfirmedAmount(intent.amountCentavos)
 
-      // 2. Build the QR Payment Method directly with PayMongo (public key).
-      const paymentMethodId = await createQrPaymentMethod()
+        // 2. Build the QR Payment Method directly with PayMongo (public key).
+        const paymentMethodId = await createQrPaymentMethod()
 
-      // 3. Attach — comes back with the QR image, no redirect involved.
-      const attached = await attachQrPaymentMethod(intent.intentId, intent.clientKey, paymentMethodId)
-      if (!attached.qrImageUrl) {
-        setError(
-          `PayMongo did not return a QR code (status: ${attached.status}). ` +
-          `No booking was created and you were not charged.`
-        )
-        setPaying(false)
-        return
+        // 3. Attach — comes back with the QR image, no redirect involved.
+        const attached = await attachQrPaymentMethod(intent.intentId, intent.clientKey, paymentMethodId)
+        if (!attached.qrImageUrl) {
+          setError(
+            `PayMongo did not return a QR code (status: ${attached.status}). ` +
+            `No booking was created and you were not charged.`
+          )
+          return
+        }
+        setQrImageUrl(attached.qrImageUrl)
+        setQrRevealed(false)
+        setTestUrl(attached.testUrl)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Payment failed')
       }
-      setQrImageUrl(attached.qrImageUrl)
-      setQrRevealed(false)
-      setTestUrl(attached.testUrl)
-      setPaying(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Payment failed')
-      setPaying(false)
-    }
+    })
   }
 
   async function handleRevealQr() {
-    const result = await Swal.fire({
-      returnFocus: false,
-      icon: 'warning',
-      iconColor: '#e05d44',
-      title: 'Reveal this QR code?',
-      text: 'Unblurring it lets any e-wallet or bank app scan it, and scanning WILL charge you real money. Only reveal it for proof of concept. Please use the simulate payment if you want to proceed with the payment',
-      showCancelButton: true,
-      confirmButtonText: 'I understand, reveal it',
-      cancelButtonText: 'Keep it blurred',
-      confirmButtonColor: '#e05d44',
-      customClass: { popup: 'rounded-2xl!' },
-    })
-    if (result.isConfirmed) {
-      setQrRevealed(true)
+    if (revealLockRef.current) return
+    revealLockRef.current = true
+    try {
+      const result = await Swal.fire({
+        returnFocus: false,
+        icon: 'warning',
+        iconColor: '#e05d44',
+        title: 'Reveal this QR code?',
+        text: 'Unblurring it lets any e-wallet or bank app scan it, and scanning WILL charge you real money. Only reveal it for proof of concept. Please use the simulate payment if you want to proceed with the payment',
+        showCancelButton: true,
+        confirmButtonText: 'I understand, reveal it',
+        cancelButtonText: 'Keep it blurred',
+        confirmButtonColor: '#e05d44',
+        customClass: { popup: 'rounded-2xl!' },
+      })
+      if (result.isConfirmed) {
+        setQrRevealed(true)
+      }
+    } finally {
+      revealLockRef.current = false
     }
   }
 
   async function handleVerifyNow() {
-    if (!intentId || verifying) return
+    if (!intentId) return
     if (isStoredTokenExpired()) {
       setError('Your session has expired. Please log out and log back in, then generate a new QR.')
       return
     }
-    setVerifying(true)
     setError(null)
-    try {
-      await confirmBookingPayment(intentId)
-      onSuccess(property)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Payment not confirmed yet — try again in a moment')
-      setVerifying(false)
-    }
+    await runVerify(async () => {
+      try {
+        await confirmBookingPayment(intentId)
+        onSuccess(property)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Payment not confirmed yet — try again in a moment')
+      }
+    })
   }
 
   return createPortal(
@@ -256,7 +262,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
           </div>
           <button
             type="button"
-            disabled={paying}
+            disabled={paying || verifying}
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 rounded-full p-1 transition-colors disabled:opacity-50 dark:text-slate-500 dark:hover:text-slate-300"
             aria-label="Close modal"

@@ -110,4 +110,22 @@ async function ensurePropertyImagesTable() {
   `);
 }
 
-module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable };
+// Adds the per-add idempotency key to pre-existing databases. A retried POST
+// (e.g. the response was lost) returns the original property instead of
+// inserting a duplicate. Safe to run on every boot.
+async function ensurePropertyClientRequestId() {
+  try {
+    await pool.query('ALTER TABLE properties ADD COLUMN client_request_id VARCHAR(64) NULL');
+  } catch (err) {
+    // ER_DUP_FIELDNAME (1060): column already exists — nothing to do.
+    if (!(err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME'))) throw err;
+  }
+  try {
+    await pool.query('ALTER TABLE properties ADD UNIQUE INDEX uq_properties_owner_client_request (owner_id, client_request_id)');
+  } catch (err) {
+    // ER_DUP_KEYNAME (1061): index already exists — nothing to do.
+    if (!(err && (err.errno === 1061 || err.code === 'ER_DUP_KEYNAME'))) throw err;
+  }
+}
+
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId };
