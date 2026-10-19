@@ -14,6 +14,7 @@ import {
   QR_EXPIRY_SECONDS,
 } from '../api/payments'
 import { findConflictingBooking, formatBookingDate } from '../utils/bookingStatus'
+import { computeEndDate, getTodayString } from '../utils/dates'
 import { isStoredTokenExpired } from '../api/authHeaders'
 import { useAuth } from '../context/AuthContext'
 
@@ -29,25 +30,6 @@ const PRESET_DURATIONS = [
   { label: '6 Months', months: 6 },
   { label: '1 Year', months: 12 },
 ]
-
-function getTodayString(): string {
-  const d = new Date()
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function computeEndDate(startDateStr: string, months: number): string {
-  if (!startDateStr || months < 1) return ''
-  const [year, month, day] = startDateStr.split('-').map(Number)
-  const d = new Date(year, month - 1, day)
-  d.setMonth(d.getMonth() + months)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const dt = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${dt}`
-}
 
 function formatDisplayDate(dateStr: string): string {
   if (!dateStr) return '-'
@@ -228,6 +210,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
 
   async function handleRevealQr() {
     const result = await Swal.fire({
+      returnFocus: false,
       icon: 'warning',
       iconColor: '#e05d44',
       title: 'Reveal this QR code?',
@@ -264,18 +247,18 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200"
     >
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 w-full max-w-md flex flex-col gap-4 relative">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 w-full max-w-md flex flex-col gap-4 relative dark:bg-slate-900 dark:border-slate-800">
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
-            <h3 className="text-xl font-bold text-slate-800">Book Rental</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Select your booking duration and dates</p>
+            <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Book Rental</h3>
+            <p className="text-xs text-slate-500 mt-0.5 dark:text-slate-400">Select your booking duration and dates</p>
           </div>
           <button
             type="button"
             disabled={paying}
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 rounded-full p-1 transition-colors disabled:opacity-50"
+            className="text-slate-400 hover:text-slate-600 rounded-full p-1 transition-colors disabled:opacity-50 dark:text-slate-500 dark:hover:text-slate-300"
             aria-label="Close modal"
           >
             <svg
@@ -290,27 +273,27 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
         </div>
 
         {/* Property Brief Card */}
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex justify-between items-center">
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex justify-between items-center dark:bg-slate-800/60 dark:border-slate-700">
           <div className="pr-2">
-            <p className="font-semibold text-slate-800 text-sm">{property.lotName}</p>
-            <p className="text-xs text-slate-500 truncate max-w-50">{property.address}</p>
+            <p className="font-semibold text-slate-800 text-sm dark:text-slate-100">{property.lotName}</p>
+            <p className="text-xs text-slate-500 truncate max-w-50 dark:text-slate-400">{property.address}</p>
           </div>
           <div className="text-right shrink-0">
             <span className="text-sm font-bold text-[#3a7e3a]">
               ₱{property.price.toLocaleString('en-PH')}
             </span>
-            <span className="text-xs text-slate-500">/mo</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">/mo</span>
           </div>
         </div>
 
         {property.archived && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3">
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 dark:bg-amber-500/10 dark:border-amber-500/40 dark:text-amber-300">
             This property is archived and no longer available for booking.
           </div>
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3">
+          <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3 dark:bg-red-500/10 dark:border-red-500/40 dark:text-red-300">
             {error}
           </div>
         )}
@@ -320,22 +303,22 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Start Date */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-slate-700">Start Date</label>
+            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Start Date</label>
             <input
               type="date"
               value={startDate}
               min={todayStr}
               required
               onChange={(e) => setStartDate(e.target.value)}
-              className="border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4a9e4a] focus:border-transparent transition-all disabled:bg-slate-100"
+              className="border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4a9e4a] focus:border-transparent transition-all disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:disabled:bg-slate-800"
             />
           </div>
 
           {/* Duration Presets */}
           <div className="flex flex-col gap-1.5">
             <div className="flex justify-between items-center">
-              <label className="text-xs font-semibold text-slate-700">Booking Duration</label>
-              <span className="text-xs font-medium text-slate-500">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Booking Duration</label>
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 {durationMonths} {durationMonths === 1 ? 'Month' : 'Months'}
               </span>
             </div>
@@ -351,7 +334,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                     className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
                       isSelected
                         ? 'bg-[#4a9e4a] text-white border-[#4a9e4a] shadow-sm'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700'
                     }`}
                   >
                     {preset.label}
@@ -362,7 +345,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
 
             {/* Custom Months Input */}
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-slate-500 whitespace-nowrap">Or custom duration:</span>
+              <span className="text-xs text-slate-500 whitespace-nowrap dark:text-slate-400">Or custom duration:</span>
               <input
                 type="number"
                 min={1}
@@ -372,44 +355,44 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                   const val = parseInt(e.target.value, 10)
                   setDurationMonths(isNaN(val) ? 1 : Math.max(1, Math.min(36, val)))
                 }}
-                className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-[#4a9e4a]"
+                className="w-20 border border-slate-300 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-2 focus:ring-[#4a9e4a] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
               />
-              <span className="text-xs text-slate-500">months</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">months</span>
             </div>
           </div>
 
           {/* Booking Summary Box */}
-          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex flex-col gap-2 text-xs">
-            <div className="flex justify-between text-slate-600">
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex flex-col gap-2 text-xs dark:bg-slate-800/60 dark:border-slate-700">
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span>Duration:</span>
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-slate-800 dark:text-slate-100">
                 {durationMonths} {durationMonths === 1 ? 'month' : 'months'}
               </span>
             </div>
-            <div className="flex justify-between text-slate-600">
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span>Rental Period:</span>
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-slate-800 dark:text-slate-100">
                 {formatDisplayDate(startDate)} → {formatDisplayDate(endDate)}
               </span>
             </div>
-            <div className="border-t border-slate-200 pt-2 mt-0.5 flex justify-between items-baseline">
-              <span className="font-semibold text-slate-700">Estimated Total:</span>
-              <span className="text-base font-bold text-slate-900">
+            <div className="border-t border-slate-200 pt-2 mt-0.5 flex justify-between items-baseline dark:border-slate-700">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Estimated Total:</span>
+              <span className="text-base font-bold text-slate-900 dark:text-slate-50">
                 ₱{totalEstimatedCost.toLocaleString('en-PH')}
               </span>
             </div>
           </div>
 
           {existingLoading && (
-            <p className="text-xs text-slate-400">Checking existing bookings for conflicts...</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Checking existing bookings for conflicts...</p>
           )}
           {existingError && (
-            <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3">
+            <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 dark:bg-amber-500/10 dark:border-amber-500/40 dark:text-amber-300">
               Couldn't verify existing bookings: {existingError}. You can still try, but overlapping dates may be rejected.
             </div>
           )}
           {conflict && !existingLoading && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3">
+            <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3 dark:bg-red-500/10 dark:border-red-500/40 dark:text-red-300">
               Conflicts with an existing booking ({formatBookingDate(conflict.startDate)} — {conflict.endDate ? formatBookingDate(conflict.endDate) : 'Ongoing'}). Please pick another range.
             </div>
           )}
@@ -419,7 +402,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full py-2.5 text-sm font-semibold transition-all disabled:opacity-50"
+              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full py-2.5 text-sm font-semibold transition-all disabled:opacity-50 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200"
             >
               Cancel
             </button>
@@ -434,23 +417,23 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
         </form>
         ) : (
         <div className="flex flex-col gap-4">
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3">
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 dark:bg-amber-500/10 dark:border-amber-500/40 dark:text-amber-300">
             Test mode — no real money moves. Scan the QR with any bank or e-wallet app to pay.
           </div>
 
           {/* Key-mode indicator removed: test-only diagnostics, hidden from renters. */}
 
           {/* Payment summary */}
-          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex flex-col gap-2 text-xs">
-            <div className="flex justify-between text-slate-600">
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex flex-col gap-2 text-xs dark:bg-slate-800/60 dark:border-slate-700">
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
               <span>Rental Period:</span>
-              <span className="font-medium text-slate-800">
+              <span className="font-medium text-slate-800 dark:text-slate-100">
                 {formatDisplayDate(startDate)} → {formatDisplayDate(endDate)}
               </span>
             </div>
-            <div className="border-t border-slate-200 pt-2 mt-0.5 flex justify-between items-baseline">
-              <span className="font-semibold text-slate-700">Amount to charge:</span>
-              <span className="text-base font-bold text-slate-900">
+            <div className="border-t border-slate-200 pt-2 mt-0.5 flex justify-between items-baseline dark:border-slate-700">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Amount to charge:</span>
+              <span className="text-base font-bold text-slate-900 dark:text-slate-50">
                 {confirmedAmount != null
                   ? formatCentavos(confirmedAmount)
                   : `₱${totalEstimatedCost.toLocaleString('en-PH')}`}
@@ -460,11 +443,11 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
 
           {qrImageUrl ? (
             <>
-              <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3">
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl p-3 dark:bg-red-500/10 dark:border-red-500/40 dark:text-red-300">
                 <span className="font-bold">This QR is blurred for your safety.</span>{' '}
                 Scanning it with a real wallet app WILL charge you real money. Use the Simulate button below instead — your phone stays in your pocket.
               </div>
-              <div className="flex flex-col items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-xl p-4">
+              <div className="flex flex-col items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-xl p-4 dark:bg-slate-800/60 dark:border-slate-700">
                 <div className="relative">
                   <img
                     src={qrImageUrl}
@@ -486,12 +469,12 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                   <button
                     type="button"
                     onClick={() => setQrRevealed(false)}
-                    className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                   >
                     Blur it again
                   </button>
                 )}
-                <p className="text-xs text-slate-500 text-center">
+                <p className="text-xs text-slate-500 text-center dark:text-slate-400">
                   Amount due: {confirmedAmount != null ? formatCentavos(confirmedAmount) : '—'}
                 </p>
                 {testUrl ? (
@@ -504,17 +487,17 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                     Simulate Test Payment
                   </a>
                 ) : (
-                  <p className="text-xs text-slate-400 text-center">
+                  <p className="text-xs text-slate-400 text-center dark:text-slate-500">
                     No simulator link came back — use the test_url from the PayMongo response (logged in the browser console) to simulate payment.
                   </p>
                 )}
               </div>
-              <p className="text-xs text-slate-400 text-center">
+              <p className="text-xs text-slate-400 text-center dark:text-slate-500">
                 Waiting for payment… this checks automatically. QR expires in ~{Math.round(QR_EXPIRY_SECONDS / 60)} minutes.
               </p>
             </>
           ) : (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Generate a QR Ph code below, then complete it with the Simulate button (never scan it with a real wallet app).
               Your booking is created automatically once payment succeeds — failed or abandoned payments create nothing.
             </p>
@@ -533,7 +516,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                 setIntentId(null)
                 setTestUrl(null)
               }}
-              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full py-2.5 text-sm font-semibold transition-all disabled:opacity-50"
+              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full py-2.5 text-sm font-semibold transition-all disabled:opacity-50 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200"
             >
               Back
             </button>

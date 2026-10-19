@@ -1,4 +1,4 @@
-import type { CreatePropertyInput, Property, PropertyImage } from '../data/properties'
+import type { CreatePropertyInput, InternetOption, Property, PropertyImage } from '../data/properties'
 import { API_BASE, apiFetch } from './http'
 
 export async function fetchProperties(): Promise<Property[]> {
@@ -23,11 +23,103 @@ export async function fetchMyProperties(): Promise<Property[]> {
 
 /** Bookable feed for renters: archived properties are excluded server-side. */
 export async function fetchAvailableProperties(): Promise<Property[]> {
-  const res = await fetch(`${API_BASE}/properties/available`)
+  // apiFetch attaches the member token when present: the server only includes
+  // owner contact details for signed-in renters, which the Contact Owner modal
+  // needs. Anonymous visitors still get the same list, just without contacts.
+  const res = await apiFetch('/properties/available')
   if (!res.ok) {
     throw new Error(`Failed to fetch properties: ${res.status}`)
   }
   return res.json()
+}
+
+export type SearchSort = 'newest' | 'price_asc' | 'price_desc'
+
+export interface SearchFilters {
+  q?: string
+  /** YYYY-MM-DD. `start` and `end` must be supplied together. */
+  start?: string
+  end?: string
+  minPrice?: number
+  maxPrice?: number
+  maxDeposit?: number
+  internet?: InternetOption
+  pets?: boolean
+  smoking?: boolean
+  modifications?: boolean
+  electricity?: boolean
+  water?: boolean
+  sort?: SearchSort
+  limit?: number
+  offset?: number
+}
+
+export interface SearchResult {
+  items: Property[]
+  total: number
+  limit: number
+  offset: number
+}
+
+function buildSearchQuery(filters: SearchFilters): string {
+  const params = new URLSearchParams()
+  const q = filters.q?.trim()
+  if (q) params.set('q', q)
+  if (filters.start) params.set('start', filters.start)
+  if (filters.end) params.set('end', filters.end)
+
+  const numeric: [string, number | undefined][] = [
+    ['minPrice', filters.minPrice],
+    ['maxPrice', filters.maxPrice],
+    ['maxDeposit', filters.maxDeposit],
+    ['limit', filters.limit],
+    ['offset', filters.offset],
+  ]
+  for (const [key, value] of numeric) {
+    if (typeof value === 'number' && Number.isFinite(value)) params.set(key, String(value))
+  }
+
+  if (filters.internet) params.set('internet', filters.internet)
+  if (filters.sort) params.set('sort', filters.sort)
+
+  const booleans: [string, boolean | undefined][] = [
+    ['pets', filters.pets],
+    ['smoking', filters.smoking],
+    ['modifications', filters.modifications],
+    ['electricity', filters.electricity],
+    ['water', filters.water],
+  ]
+  for (const [key, value] of booleans) {
+    if (value) params.set(key, '1')
+  }
+
+  return params.toString()
+}
+
+/** Public search: works signed out, and returns owner contact only when signed in. */
+export async function searchProperties(filters: SearchFilters): Promise<SearchResult> {
+  const query = buildSearchQuery(filters)
+  const res = await apiFetch(`/properties/search${query ? `?${query}` : ''}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.message || `Search failed (${res.status})`)
+  }
+  return res.json()
+}
+
+/** Destination autocomplete drawn from addresses that actually have listings. */
+export async function fetchAddressSuggestions(query: string, signal?: AbortSignal): Promise<string[]> {
+  const params = new URLSearchParams()
+  if (query.trim()) params.set('q', query.trim())
+  try {
+    const res = await fetch(`${API_BASE}/properties/suggestions?${params.toString()}`, { signal })
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data) ? data.filter((value: unknown): value is string => typeof value === 'string') : []
+  } catch {
+    // Aborted or offline — suggestions are a nicety, never a blocker.
+    return []
+  }
 }
 
 function authHeaders(): HeadersInit {
