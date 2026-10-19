@@ -21,7 +21,7 @@ export const segments: Segment[] = [
   { id: 'properties', path: '/properties', title: 'My Properties',  ...cellPos(1, 0), width: CELL_W, height: CELL_H},
   { id: 'bookings',   path: '/bookings',   title: 'My Bookings',    ...cellPos(2, 0), width: CELL_W, height: CELL_H},
   { id: 'messages',   path: '/messages',   title: 'Messages',       ...cellPos(0, 1), width: CELL_W, height: CELL_H},
-  { id: 'home',       path: '/',           title: 'Where do you wanna start?',      ...cellPos(1, 1), width: CELL_W, height: CELL_H},
+  { id: 'home',       path: '/dashboard',  title: 'Where do you wanna start?',      ...cellPos(1, 1), width: CELL_W, height: CELL_H},
   { id: 'settings',   path: '/settings',   title: 'Settings',       ...cellPos(2, 1), width: CELL_W, height: CELL_H},
   { id: 'wallet',     path: '/wallet',     title: 'Wallet',         ...cellPos(0, 2), width: CELL_W, height: CELL_H},
 ]
