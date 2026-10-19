@@ -6,6 +6,8 @@ export interface Segment {
   y: number
   width: number
   height: number
+  /** Visible but not openable yet (rendered as a "Coming soon" card). */
+  comingSoon?: boolean
 }
 
 const CELL_W = 1600
@@ -23,7 +25,7 @@ export const segments: Segment[] = [
   { id: 'messages',   path: '/messages',   title: 'Messages',       ...cellPos(0, 1), width: CELL_W, height: CELL_H},
   { id: 'home',       path: '/dashboard',  title: 'Where do you wanna start?',      ...cellPos(1, 1), width: CELL_W, height: CELL_H},
   { id: 'settings',   path: '/settings',   title: 'Settings',       ...cellPos(2, 1), width: CELL_W, height: CELL_H},
-  { id: 'wallet',     path: '/wallet',     title: 'Wallet',         ...cellPos(0, 2), width: CELL_W, height: CELL_H},
+  { id: 'wallet',     path: '/wallet',     title: 'Wallet',         ...cellPos(0, 2), width: CELL_W, height: CELL_H, comingSoon: true },
 ]
 
 export const WORLD_WIDTH = 3 * CELL_W + 2 * GAP

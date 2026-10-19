@@ -140,20 +140,52 @@ export default function WorldMap() {
                 <div className="grid grid-cols-3 gap-6">
                   {segments
                     .filter((s) => s.id !== 'home')
-                    .map((s) => (
-                      <button
-                        key={s.id}
-                        onClick={() => navigate(s.path)}
-                        className="relative bg-white rounded-xl px-8 py-6 text-xl font-semibold text-slate-700 shadow hover:shadow-lg hover:scale-105 transition-all dark:bg-slate-900 dark:text-slate-200 dark:border dark:border-slate-700"
-                      >
-                        {s.title}
-                        {s.id === 'messages' && unreadMessages > 0 && (
-                          <span className="absolute -top-2 -right-2 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[#e05d44] px-1 text-xs font-bold text-white shadow">
-                            {unreadMessages > 9 ? '9+' : unreadMessages}
+                    .map((s) =>
+                      s.comingSoon ? (
+                        <div
+                          key={s.id}
+                          aria-disabled="true"
+                          className="relative cursor-not-allowed rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-8 py-6 text-xl font-semibold text-slate-400 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-500"
+                        >
+                          {s.title}
+                          <span className="absolute -top-2 -right-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                            Coming soon
                           </span>
-                        )}
-                      </button>
-                    ))}
+                        </div>
+                      ) : (
+                        <button
+                          key={s.id}
+                          onClick={() => navigate(s.path)}
+                          className="relative bg-white rounded-xl px-8 py-6 text-xl font-semibold text-slate-700 shadow hover:shadow-lg hover:scale-105 transition-all dark:bg-slate-900 dark:text-slate-200 dark:border dark:border-slate-700"
+                        >
+                          {s.title}
+                          {s.id === 'messages' && unreadMessages > 0 && (
+                            <span className="absolute -top-2 -right-2 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[#e05d44] px-1 text-xs font-bold text-white shadow">
+                              {unreadMessages > 9 ? '9+' : unreadMessages}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    )}
+                </div>
+              ) : segment.comingSoon ? (
+                <div className="max-w-md rounded-2xl border-2 border-dashed border-slate-300 bg-white/85 p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/85">
+                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-3xl dark:bg-amber-500/20">
+                    🚧
+                  </div>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
+                    Under development
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                    The {segment.title.toLowerCase()} is still being built. Soon you'll be able to track
+                    rent payments and receipts here.
+                  </p>
+                  <button
+                    onClick={() => navigate('/dashboard')}
+                    className="mt-5 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                  >
+                    ← Back to Dashboard
+                  </button>
                 </div>
               ) : (
                 <button
