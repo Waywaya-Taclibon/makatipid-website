@@ -6,6 +6,8 @@ import PropertiesView from './PropertiesView'
 import BrowseRentals from './BrowseRentals'
 import Settings from './Settings'
 import Bookings from './Bookings'
+import Messages from './Messages'
+import { useUnreadMessages } from '../hooks/useUnreadMessages'
 
 // Where the camera must sit to centre the section for `pathname`, in pixels.
 // Kept outside the component so the very first render can already start in the
@@ -37,6 +39,7 @@ function computeTransform(pathname: string) {
 export default function WorldMap() {
   const location = useLocation()
   const navigate = useNavigate()
+  const unreadMessages = useUnreadMessages()
   // Lazy initialiser: the first paint is already centred on the current section,
   // so a refresh doesn't show the world's top-left corner (Browse Rentals) first.
   const [transform, setTransform] = useState(() => computeTransform(location.pathname))
@@ -123,6 +126,8 @@ export default function WorldMap() {
             <Settings />
           ) : segment.id === 'bookings' ? (
             <Bookings />
+          ) : segment.id === 'messages' ? (
+            <Messages />
           ) : (
             <>
               <h2 className="text-5xl font-bold text-slate-800 mb-8 dark:text-slate-100">{segment.title}</h2>
@@ -135,9 +140,14 @@ export default function WorldMap() {
                       <button
                         key={s.id}
                         onClick={() => navigate(s.path)}
-                        className="bg-white rounded-xl px-8 py-6 text-xl font-semibold text-slate-700 shadow hover:shadow-lg hover:scale-105 transition-all dark:bg-slate-900 dark:text-slate-200 dark:border dark:border-slate-700"
+                        className="relative bg-white rounded-xl px-8 py-6 text-xl font-semibold text-slate-700 shadow hover:shadow-lg hover:scale-105 transition-all dark:bg-slate-900 dark:text-slate-200 dark:border dark:border-slate-700"
                       >
                         {s.title}
+                        {s.id === 'messages' && unreadMessages > 0 && (
+                          <span className="absolute -top-2 -right-2 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[#e05d44] px-1 text-xs font-bold text-white shadow">
+                            {unreadMessages > 9 ? '9+' : unreadMessages}
+                          </span>
+                        )}
                       </button>
                     ))}
                 </div>

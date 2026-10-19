@@ -110,6 +110,49 @@ async function ensurePropertyImagesTable() {
   `);
 }
 
+// Creates the temporary messaging tables on pre-existing databases (fresh
+// installs get them from schema.sql). Safe to run on every boot.
+async function ensureMessagingTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      property_id INT NOT NULL,
+      owner_id INT NOT NULL,
+      renter_id INT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_message_at TIMESTAMP NULL,
+      expires_at TIMESTAMP NOT NULL,
+      CONSTRAINT fk_conversations_property FOREIGN KEY (property_id) REFERENCES properties (id),
+      CONSTRAINT fk_conversations_owner FOREIGN KEY (owner_id) REFERENCES users (id),
+      CONSTRAINT fk_conversations_renter FOREIGN KEY (renter_id) REFERENCES users (id),
+      UNIQUE KEY uq_conversations_property_renter (property_id, renter_id),
+      INDEX idx_conversations_owner (owner_id, last_message_at),
+      INDEX idx_conversations_renter (renter_id, last_message_at),
+      INDEX idx_conversations_expires (expires_at)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      conversation_id INT NOT NULL,
+      sender_id INT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      read_at TIMESTAMP NULL,
+      CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+      CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (id),
+      INDEX idx_messages_conversation (conversation_id, id)
+    )
+  `);
+}
+
+// Hard-deletes chats whose 24-hour window has elapsed. Messages go with them
+// via ON DELETE CASCADE. Returns the number of conversations removed.
+async function sweepExpiredConversations() {
+  const [result] = await pool.query('DELETE FROM conversations WHERE expires_at <= NOW()');
+  return result.affectedRows || 0;
+}
+
 // Adds the per-add idempotency key to pre-existing databases. A retried POST
 // (e.g. the response was lost) returns the original property instead of
 // inserting a duplicate. Safe to run on every boot.
@@ -128,4 +171,4 @@ async function ensurePropertyClientRequestId() {
   }
 }
 
-module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId };
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId };

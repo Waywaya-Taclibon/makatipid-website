@@ -1,5 +1,9 @@
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { OwnerContact, Property } from '../data/properties'
+import { useAuth } from '../context/AuthContext'
+import { useAuthModal } from '../context/AuthModalContext'
+import MessageOwnerModal from './MessageOwnerModal'
 
 interface ContactOwnerModalProps {
   property: Property
@@ -140,6 +144,10 @@ function ContactRow({
 }
 
 export default function ContactOwnerModal({ property, onClose }: ContactOwnerModalProps) {
+  const { token } = useAuth()
+  const { openAuth } = useAuthModal()
+  const [showMessenger, setShowMessenger] = useState(false)
+
   const contact: OwnerContact = property.ownerContact ?? {}
   const ownerName = contact.name?.trim() || `Owner #${property.ownerId}`
   const hasAnyContact = Boolean(
@@ -148,6 +156,16 @@ export default function ContactOwnerModal({ property, onClose }: ContactOwnerMod
       contact.facebook?.trim() ||
       contact.instagram?.trim()
   )
+
+  function handleMessage() {
+    if (!token) {
+      // Public search allows anonymous browsing: sign them in, then they can
+      // start the chat from the same listing.
+      openAuth('login', window.location.pathname + window.location.search)
+      return
+    }
+    setShowMessenger(true)
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -223,20 +241,18 @@ export default function ContactOwnerModal({ property, onClose }: ContactOwnerMod
           />
         </div>
 
-        {/* In-app messaging is scaffolded but not wired up yet. */}
+        {/* In-app messaging. Chats are temporary (24h after the last message). */}
         <div className="mt-5">
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            title="In-app messaging is coming soon"
-            className="w-full flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold bg-blue-600/40 text-white cursor-not-allowed dark:bg-blue-500/25"
+            onClick={handleMessage}
+            className="w-full flex items-center justify-center gap-2 rounded-full py-2.5 text-sm font-semibold bg-blue-600 text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
           >
             <ChatIcon className="w-4 h-4" />
             Message on Makatipid
           </button>
           <p className="mt-1.5 text-xs text-center text-slate-400 dark:text-slate-500">
-            In-app messaging is coming soon.
+            Chats are temporary — they disappear 24 hours after the last message.
           </p>
         </div>
 
@@ -249,6 +265,8 @@ export default function ContactOwnerModal({ property, onClose }: ContactOwnerMod
           </button>
         </div>
       </div>
+
+      {showMessenger && <MessageOwnerModal property={property} onClose={() => setShowMessenger(false)} />}
     </div>,
     document.body
   )

@@ -80,3 +80,36 @@ CREATE TABLE IF NOT EXISTS property_images (
   CONSTRAINT fk_property_images_property FOREIGN KEY (property_id) REFERENCES properties (id),
   INDEX idx_property_images_property (property_id, sort_order)
 );
+
+-- Temporary in-app messaging, scoped to one renter + one listing.
+-- The whole chat (and its messages, via ON DELETE CASCADE) is deleted 24 hours
+-- after the last message so storage and traffic stay bounded. Sending a new
+-- message pushes the expiry out by another 24 hours.
+CREATE TABLE IF NOT EXISTS conversations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  property_id INT NOT NULL,
+  owner_id INT NOT NULL,
+  renter_id INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_message_at TIMESTAMP NULL,
+  expires_at TIMESTAMP NOT NULL,
+  CONSTRAINT fk_conversations_property FOREIGN KEY (property_id) REFERENCES properties (id),
+  CONSTRAINT fk_conversations_owner FOREIGN KEY (owner_id) REFERENCES users (id),
+  CONSTRAINT fk_conversations_renter FOREIGN KEY (renter_id) REFERENCES users (id),
+  UNIQUE KEY uq_conversations_property_renter (property_id, renter_id),
+  INDEX idx_conversations_owner (owner_id, last_message_at),
+  INDEX idx_conversations_renter (renter_id, last_message_at),
+  INDEX idx_conversations_expires (expires_at)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  conversation_id INT NOT NULL,
+  sender_id INT NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at TIMESTAMP NULL,
+  CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
+  CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (id),
+  INDEX idx_messages_conversation (conversation_id, id)
+);

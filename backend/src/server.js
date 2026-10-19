@@ -11,6 +11,7 @@ const propertyRoutes = require('./routes/properties');
 const rentalLogRoutes = require('./routes/rentallog');
 const paymentRoutes = require('./routes/payments');
 const propertyImageRoutes = require('./routes/propertyImages');
+const messageRoutes = require('./routes/messages');
 const healthRoutes = require('./routes/health');
 
 const app = express();
@@ -66,6 +67,9 @@ const apiLimiter = rateLimit({
   limit: 600,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  // Messaging uses its own limiters below: chat polling is frequent by design
+  // and would otherwise blow through the global budget with a single thread open.
+  skip: (req) => req.path.startsWith('/messages'),
   message: { message: 'Too many requests. Please slow down.' },
 });
 // Property creation is expensive (row + optional photo uploads), so it gets its
@@ -78,9 +82,29 @@ const propertyCreateLimiter = rateLimit({
   skip: (req) => req.method !== 'POST' || req.path !== '/',
   message: { message: 'Too many property submissions. Please try again later.' },
 });
+// Chat reads are polled every few seconds, so they get a roomy budget; sends
+// get a much tighter one to stop spam.
+const messagesReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1500,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => req.method !== 'GET',
+  message: { message: 'Too many message requests. Please slow down.' },
+});
+const messagesSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: (req) => req.method !== 'POST',
+  message: { message: 'Too many messages sent. Please wait a moment and try again.' },
+});
 app.use('/api/auth', authLimiter);
 app.use('/api/payments', paymentsLimiter);
 app.use('/api/properties', propertyCreateLimiter);
+app.use('/api/messages', messagesReadLimiter);
+app.use('/api/messages', messagesSendLimiter);
 app.use('/api', apiLimiter);
 
 app.use(authMiddleware);
@@ -90,6 +114,7 @@ app.use('/api/properties/:propertyId/images', propertyImageRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/rentallog', rentalLogRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/messages', messageRoutes);
 app.use('/', healthRoutes);
 
 // eslint-disable-next-line no-unused-vars
@@ -105,7 +130,7 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId } = require('./db');
+  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, sweepExpiredConversations } = require('./db');
   checkConnection()
     .then(() => console.log('MySQL connected'))
     .then(() => ensureUserTokenVersionColumn())
@@ -114,9 +139,18 @@ if (require.main === module) {
     .then(() => ensurePropertyCoordinatePrecision())
     .then(() => ensurePropertyImagesTable())
     .then(() => ensurePropertyClientRequestId())
+    .then(() => ensureMessagingTables())
+    // Clear any chats that expired while the server was down.
+    .then(() => sweepExpiredConversations())
     .catch((e) => console.warn('MySQL not reachable yet:', e.message))
     .finally(() => {
       app.listen(PORT, () => console.log(`Backend listening on :${PORT}`));
+      // Chats self-destruct after 24 hours. A periodic sweep frees the rows even
+      // when nobody is reading (reads also hide expired chats).
+      const sweep = setInterval(() => {
+        sweepExpiredConversations().catch((e) => console.warn('Message sweep failed:', e.message));
+      }, 15 * 60 * 1000);
+      sweep.unref();
     });
 }
 
