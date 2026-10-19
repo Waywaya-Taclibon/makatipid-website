@@ -3,8 +3,8 @@ import type { InternetOption } from '../data/properties'
 import type { PropertyFormState } from './propertyForm'
 import LocationPicker from './LocationPicker'
 
-const inputClass = 'border border-slate-300 rounded-lg px-3 py-2 text-sm'
-const checkboxClass = 'flex items-center gap-2 text-sm text-slate-700'
+const inputClass = 'border border-slate-300 rounded-lg px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500'
+const checkboxClass = 'flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300'
 
 export default function PropertyFormFields({
   value,
@@ -25,7 +25,7 @@ export default function PropertyFormFields({
       <button
         type="button"
         onClick={() => setManualCoords((v) => !v)}
-        className="text-xs font-semibold text-slate-500 hover:text-slate-700 self-start"
+        className="text-xs font-semibold text-slate-500 hover:text-slate-700 self-start dark:text-slate-400 dark:hover:text-slate-200"
       >
         {manualCoords ? 'Hide manual coordinates' : 'Enter coordinates manually instead'}
       </button>
@@ -36,12 +36,12 @@ export default function PropertyFormFields({
         </div>
       )}
 
-      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">Available until <span className="font-normal normal-case">(optional)</span></label>
+      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1 dark:text-slate-400">Available until <span className="font-normal normal-case">(optional)</span></label>
       <input value={value.availableUntil} onChange={(e) => set({ availableUntil: e.target.value })} type="date" className={`${inputClass} -mt-2`} />
       <input value={value.securityDeposit} onChange={(e) => set({ securityDeposit: e.target.value })} placeholder="Security deposit upon meetup (₱, optional)" type="number" min="0" step="any" className={inputClass} />
 
-      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">Internet</label>
-      <select value={value.internet} onChange={(e) => set({ internet: e.target.value as InternetOption })} className={`${inputClass} -mt-2 bg-white`}>
+      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1 dark:text-slate-400">Internet</label>
+      <select value={value.internet} onChange={(e) => set({ internet: e.target.value as InternetOption })} className={`${inputClass} -mt-2 bg-white dark:bg-slate-800`}>
         <option value="INCLUDED">Included in rent</option>
         <option value="AVAILABLE">Available on lot (paid separately)</option>
         <option value="NONE">Not available</option>

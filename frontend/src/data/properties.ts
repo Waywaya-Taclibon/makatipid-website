@@ -7,6 +7,26 @@ export interface PropertyImage {
   sortOrder: number
 }
 
+/**
+ * Owner contact details shown in the Contact Owner modal.
+ *
+ * Every field is optional: the backend does not return these yet, so the modal
+ * renders "Not provided yet" placeholders. Once the API exposes them (either
+ * mapped from the users table or new columns), populate `Property.ownerContact`
+ * in `api/properties.ts` and the modal fills in automatically — no UI changes.
+ */
+export interface OwnerContact {
+  /** Display name; falls back to "Owner #<id>" when missing. */
+  name?: string | null
+  /** Phone number in any format the owner entered (linked as tel:). */
+  phone?: string | null
+  email?: string | null
+  /** Full URL or plain handle — both are accepted. */
+  facebook?: string | null
+  /** Full URL or plain handle — both are accepted. */
+  instagram?: string | null
+}
+
 export interface Property {
   id: number
   lotName: string
@@ -15,6 +35,8 @@ export interface Property {
   lat: number
   lng: number
   ownerId: number
+  /** Not sent by the API yet — see OwnerContact. */
+  ownerContact?: OwnerContact | null
   occupied: boolean
   archived: boolean
   availableUntil: string | null

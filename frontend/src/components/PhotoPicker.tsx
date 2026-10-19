@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PropertyImage } from '../data/properties'
 
 export interface PhotoItem {
@@ -12,13 +12,9 @@ export const MAX_PHOTOS = 3
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 function NewPhotoThumb({ file }: { file: File }) {
-  const [preview, setPreview] = useState<string | null>(null)
-  useEffect(() => {
-    const url = URL.createObjectURL(file)
-    setPreview(url)
-    return () => URL.revokeObjectURL(url)
-  }, [file])
-  if (!preview) return <div className="w-full h-20 bg-slate-100 rounded-lg animate-pulse" />
+  const preview = useMemo(() => URL.createObjectURL(file), [file])
+  // Revoke only when the URL is replaced or the thumbnail unmounts.
+  useEffect(() => () => URL.revokeObjectURL(preview), [preview])
   return <img src={preview} alt="New photo preview" className="w-full h-20 object-cover rounded-lg" />
 }
 
@@ -72,14 +68,14 @@ export default function PhotoPicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide dark:text-slate-400">
           Photos <span className="font-normal normal-case">({items.length}/{MAX_PHOTOS}, first = cover)</span>
         </label>
         {remaining > 0 && (
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+            className="text-xs font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
           >
             + Add photos
           </button>
@@ -100,7 +96,7 @@ export default function PhotoPicker({
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="border-2 border-dashed border-slate-300 hover:border-slate-400 rounded-xl py-6 text-sm text-slate-500 transition-colors"
+          className="border-2 border-dashed border-slate-300 hover:border-slate-400 rounded-xl py-6 text-sm text-slate-500 transition-colors dark:border-slate-700 dark:hover:border-slate-500 dark:text-slate-400"
         >
           Tap to add up to {MAX_PHOTOS} photos of your property
         </button>
@@ -150,7 +146,7 @@ export default function PhotoPicker({
           ))}
         </div>
       )}
-      {note && <p className="text-xs text-amber-600">{note}</p>}
+      {note && <p className="text-xs text-amber-600 dark:text-amber-400">{note}</p>}
     </div>
   )
 }

@@ -137,14 +137,14 @@ export default function LocationPicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide dark:text-slate-400">
           Pin location <span className="font-normal normal-case">(search, then tap)</span>
         </label>
         <button
           type="button"
           onClick={handleUseMyLocation}
           disabled={locating}
-          className="text-xs font-semibold text-blue-600 hover:text-blue-800 disabled:opacity-50"
+          className="text-xs font-semibold text-blue-600 hover:text-blue-800 disabled:opacity-50 dark:text-blue-400 dark:hover:text-blue-300"
         >
           {locating ? 'Locating…' : 'Use my location'}
         </button>
@@ -163,18 +163,18 @@ export default function LocationPicker({
             }
           }}
           placeholder="Search street, barangay, or city…"
-          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm"
+          className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
         />
         <button
           type="button"
           onClick={() => void handleSearch()}
           disabled={searching || !query.trim()}
-          className="bg-slate-800 hover:bg-slate-700 text-white rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50"
+          className="bg-slate-800 hover:bg-slate-700 text-white rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
         >
           {searching ? '…' : 'Find'}
         </button>
       </div>
-      {searchError && <p className="text-xs text-amber-600">{searchError}</p>}
+      {searchError && <p className="text-xs text-amber-600 dark:text-amber-400">{searchError}</p>}
       {results.length > 0 && (
         <div className="flex flex-col gap-1 max-h-28 overflow-y-auto">
           {results.map((r) => (
@@ -182,14 +182,14 @@ export default function LocationPicker({
               key={`${r.lat},${r.lon},${r.display_name}`}
               type="button"
               onClick={() => handleSelectResult(r)}
-              className="text-left text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700"
+              className="text-left text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 dark:bg-slate-800/60 dark:hover:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
             >
               {r.display_name}
             </button>
           ))}
         </div>
       )}
-      <div className="rounded-xl overflow-hidden border border-slate-300 h-64">
+      <div className="rounded-xl overflow-hidden border border-slate-300 h-64 dark:border-slate-700">
         <MapContainer
           center={center}
           zoom={hasPin ? FOCUSED_ZOOM : DEFAULT_ZOOM}
@@ -218,8 +218,8 @@ export default function LocationPicker({
           )}
         </MapContainer>
       </div>
-      {geoError && <p className="text-xs text-amber-600">{geoError}</p>}
-      <p className="text-xs text-slate-500">
+      {geoError && <p className="text-xs text-amber-600 dark:text-amber-400">{geoError}</p>}
+      <p className="text-xs text-slate-500 dark:text-slate-400">
         {hasPin
           ? `Pinned at ${parsedLat.toFixed(5)}, ${parsedLng.toFixed(5)} — zoom right in and drag the pin for meter-level accuracy.`
           : 'Tip: search your street or barangay first — tapping while zoomed out can land kilometers away.'}
