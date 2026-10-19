@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
@@ -10,10 +10,12 @@ import { fetchLogsByProperty } from '../api/rentallog'
 import { formatBookingDate, getCurrentBooking, getDynamicStatus, getUpcomingBooking } from '../utils/bookingStatus'
 import AddPropertyModal from './AddPropertyModal'
 import EditPropertyModal from './EditPropertyModal'
+import ProfileCompletionModal from './ProfileCompletionModal'
 import type { PhotoItem } from './PhotoPicker'
 import Swal from 'sweetalert2'
 import { useAuth } from '../context/AuthContext'
 import { cancelSwal } from '../utils/swal'
+import { fetchMyProfile, isProfileComplete, type UserProfile } from '../api/users'
 
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -36,9 +38,9 @@ function formatPrice(price: number) {
 }
 
 const bookingStatusStyles: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-700 border border-green-300',
-  PENDING: 'bg-amber-100 text-amber-700 border border-amber-300',
-  ENDED: 'bg-slate-100 text-slate-500 border border-slate-300',
+  ACTIVE: 'bg-green-100 text-green-700 border border-green-300 dark:bg-green-500/15 dark:text-green-300 dark:border-green-500/40',
+  PENDING: 'bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/40',
+  ENDED: 'bg-slate-100 text-slate-500 border border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700',
 }
 
 export default function PropertiesView() {
@@ -55,6 +57,12 @@ export default function PropertiesView() {
   // rely on the stale backend `occupied` flag (which ignores dates).
   const [bookingsByProperty, setBookingsByProperty] = useState<Record<number, Booking[]>>({})
   const [bookingErrorsByProperty, setBookingErrorsByProperty] = useState<Record<number, string>>({})
+
+  // Listing gate: a phone number must be on the owner's profile before they can
+  // add a property. The prompt repeats on every visit while it's still missing.
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [showProfileModal, setShowProfileModal] = useState(false)
+  const profilePromptedRef = useRef(false)
 
   useEffect(() => {
     if (!isActive || properties.length > 0) return
@@ -118,6 +126,53 @@ export default function PropertiesView() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, ownedIdsKey])
+
+  const promptForProfile = useCallback(async () => {
+    const result = await Swal.fire({
+      returnFocus: false,
+      icon: 'warning',
+      iconColor: '#e05d44',
+      title: 'Complete your information first',
+      text: "You haven't completed your contact information yet. It's required to be eligible for property listing. Do you want to proceed?",
+      showCancelButton: true,
+      confirmButtonText: "Yes, let's do it",
+      cancelButtonText: 'Not now',
+      confirmButtonColor: '#4a9e4a',
+      customClass: {
+        popup: 'rounded-2xl! font-sans',
+        title: 'text-xl! font-bold! text-slate-800! dark:text-slate-100!',
+      },
+    })
+    if (result.isConfirmed) setShowProfileModal(true)
+  }, [])
+
+  // Re-read the profile every time the page becomes active so the prompt can
+  // re-appear while the details are still missing (agreed behaviour).
+  useEffect(() => {
+    if (!isActive) return
+    profilePromptedRef.current = false
+    let cancelled = false
+    fetchMyProfile()
+      .then((data) => {
+        if (!cancelled) setProfile(data)
+      })
+      .catch(() => {
+        // If the profile can't be read (session/network), leave listing open
+        // rather than blocking on a transient failure.
+        if (!cancelled) setProfile(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isActive])
+
+  useEffect(() => {
+    if (!isActive || !profile) return
+    if (isProfileComplete(profile)) return
+    if (profilePromptedRef.current) return
+    profilePromptedRef.current = true
+    void promptForProfile()
+  }, [isActive, profile, promptForProfile])
 
   const propertyBookings = selectedId == null ? [] : bookingsByProperty[selectedId] ?? []
   const bookingsLoading = selectedId != null
@@ -229,6 +284,15 @@ export default function PropertiesView() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
 
+  // Add Property is gated behind the profile check; viewing/editing stays open.
+  function handleAddPropertyClick() {
+    if (profile && !isProfileComplete(profile)) {
+      void promptForProfile()
+      return
+    }
+    setShowAddModal(true)
+  }
+
   async function handleAdd(data: CreatePropertyInput, photos: File[]) {
     try {
       const created = await createProperty(data)
@@ -246,6 +310,7 @@ export default function PropertiesView() {
       setSelected(created)
       setShowAddModal(false)
       await Swal.fire({
+        returnFocus: false,
         icon: 'success',
         iconColor: '#4a9e4a',
         title: 'Property added!',
@@ -254,7 +319,7 @@ export default function PropertiesView() {
         confirmButtonColor: '#4a9e4a',
         customClass: {
           popup: 'rounded-2xl!',
-          title: 'text-lg! font-bold! text-slate-800!',
+          title: 'text-lg! font-bold! text-slate-800! dark:text-slate-100!',
         },
       })
     } catch (err) {
@@ -312,9 +377,9 @@ export default function PropertiesView() {
   return (
     <div className="grid grid-cols-3 gap-6 w-full h-[75vh] max-w-6xl">
       {/* Left panel — 1 column wide */}
-      <div className="col-span-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 overflow-y-auto">
+      <div className="col-span-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 overflow-y-auto dark:bg-slate-900/95 dark:border dark:border-slate-800">
         <div className="flex items-center justify-between mb-3">
-           <h3 className="text-lg font-bold text-slate-800">My Properties</h3>
+           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">My Properties</h3>
             <div className="relative flex items-center gap-2">
               {hoveredAction && (
                 <div className="absolute right-full mr-2 top-1/2 -translate-y-1/2 z-10 px-2.5 py-1 text-[11px] font-medium text-white bg-slate-800 rounded shadow-md whitespace-nowrap pointer-events-none">
@@ -324,7 +389,7 @@ export default function PropertiesView() {
                     : 'Remove property'}
                 </div>
               )}
-              <button onClick={() => setShowAddModal(true)} className="bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all" onMouseEnter={() => setHoveredAction('add')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('add')} onBlur={() => setHoveredAction(null)}>
+              <button onClick={handleAddPropertyClick} className="bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm hover:shadow-md transition-all" onMouseEnter={() => setHoveredAction('add')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('add')} onBlur={() => setHoveredAction(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                 </svg>
@@ -334,7 +399,7 @@ export default function PropertiesView() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
               </button>
-              <button onClick={handleArchiveToggle} disabled={!selected} className={`rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-all ${!selected ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : selected.archived ? 'bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`} onMouseEnter={() => setHoveredAction('archive')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('archive')} onBlur={() => setHoveredAction(null)}>
+              <button onClick={handleArchiveToggle} disabled={!selected} className={`rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-all ${!selected ? 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500' : selected.archived ? 'bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'}`} onMouseEnter={() => setHoveredAction('archive')} onMouseLeave={() => setHoveredAction(null)} onFocus={() => setHoveredAction('archive')} onBlur={() => setHoveredAction(null)}>
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                 </svg>
@@ -346,8 +411,8 @@ export default function PropertiesView() {
               </button>
             </div>
         </div>
-        {loading && <p className="text-sm text-slate-400">Loading properties...</p>}
-        {error && <p className="text-sm text-red-500">Couldn't load properties: {error}</p>}
+        {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading properties...</p>}
+        {error && <p className="text-sm text-red-500 dark:text-red-400">Couldn't load properties: {error}</p>}
         <div className="flex flex-col gap-2">
           {properties.map((p) => {
             if (userId !== p.ownerId) return null
@@ -360,31 +425,31 @@ export default function PropertiesView() {
                 onClick={() => setSelected(p)}
                 className={`text-left rounded-xl p-3 transition-colors ${
                   selected?.id === p.id
-                    ? 'bg-blue-100 border-2 border-blue-400'
-                    : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+                    ? 'bg-blue-100 border-2 border-blue-400 dark:bg-blue-500/15 dark:border-blue-400'
+                    : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <p className="font-semibold text-slate-800">{p.lotName}</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">{p.lotName}</p>
                   <div className="flex gap-1 shrink-0">
                     {p.archived && (
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-amber-100 text-amber-700 border border-amber-300">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap bg-amber-100 text-amber-700 border border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/40">
                         Archived
                       </span>
                     )}
                     <span
                       className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${
                         booked
-                          ? 'bg-green-100 text-green-700 border border-green-300'
-                          : 'bg-slate-100 text-slate-500 border border-slate-300'
+                          ? 'bg-green-100 text-green-700 border border-green-300 dark:bg-green-500/15 dark:text-green-300 dark:border-green-500/40'
+                          : 'bg-slate-100 text-slate-500 border border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
                       }`}
                     >
                       {booked ? 'Booked' : 'Available'}
                     </span>
                   </div>
                 </div>
-                <p className="text-sm text-slate-500">{p.address}</p>
-                <p className="text-sm font-medium text-blue-600">{formatPrice(p.price)}</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">{p.address}</p>
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">{formatPrice(p.price)}</p>
               </button>
             )
           })}
@@ -394,29 +459,29 @@ export default function PropertiesView() {
       {/* Right panel — 2 columns wide */}
       <div className="col-span-2 flex flex-col gap-4 min-h-0">
         {/* Booking status card for the selected property */}
-        <div className="bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 max-h-[38vh] overflow-y-auto">
+        <div className="bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 max-h-[38vh] overflow-y-auto dark:bg-slate-900/95 dark:border dark:border-slate-800">
           {selected?.archived && (
-            <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+            <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/40">
               Archived — hidden from renters. Use Unarchive to make it bookable again.
             </p>
           )}
           {!selected ? (
-            <p className="text-sm text-slate-400">Select a property to see its booking status.</p>
+            <p className="text-sm text-slate-400 dark:text-slate-500">Select a property to see its booking status.</p>
           ) : bookingsLoading ? (
-            <p className="text-sm text-slate-400">Checking booking status for “{selected.lotName}”...</p>
+            <p className="text-sm text-slate-400 dark:text-slate-500">Checking booking status for “{selected.lotName}”...</p>
           ) : bookingsError ? (
-            <p className="text-sm text-red-500">Couldn't load booking status: {bookingsError}</p>
+            <p className="text-sm text-red-500 dark:text-red-400">Couldn't load booking status: {bookingsError}</p>
           ) : currentBooking ? (
             <div className="flex justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-                  <p className="font-semibold text-slate-800">Currently Booked</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-100">Currently Booked</p>
                 </div>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="text-sm text-slate-500 mt-1 dark:text-slate-400">
                   {formatBookingDate(currentBooking.startDate)} — {currentBooking.endDate ? formatBookingDate(currentBooking.endDate) : 'Ongoing'}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 mt-1 dark:text-slate-400">
                   Renter: {currentBooking.renterName ?? (currentBooking.renterId != null ? `#${currentBooking.renterId}` : '—')}
                 </p>
               </div>
@@ -427,11 +492,11 @@ export default function PropertiesView() {
           ) : upcomingBooking ? (
             <div className="flex justify-between gap-3">
               <div>
-                <p className="font-semibold text-slate-800">Available now · Upcoming booking</p>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="font-semibold text-slate-800 dark:text-slate-100">Available now · Upcoming booking</p>
+                <p className="text-sm text-slate-500 mt-1 dark:text-slate-400">
                   {formatBookingDate(upcomingBooking.startDate)} — {upcomingBooking.endDate ? formatBookingDate(upcomingBooking.endDate) : 'Ongoing'}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 mt-1 dark:text-slate-400">
                   Renter: {upcomingBooking.renterName ?? (upcomingBooking.renterId != null ? `#${upcomingBooking.renterId}` : '—')}
                   {' '}· Booking #{upcomingBooking.id}
                 </p>
@@ -443,10 +508,10 @@ export default function PropertiesView() {
           ) : (
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
-                <p className="font-semibold text-slate-800">Available — no active booking today</p>
+                <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+                <p className="font-semibold text-slate-800 dark:text-slate-100">Available — no active booking today</p>
               </div>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-300 whitespace-nowrap">
+              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-300 whitespace-nowrap dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700">
                 AVAILABLE
               </span>
             </div>
@@ -454,21 +519,21 @@ export default function PropertiesView() {
 
           {/* Full booking history: past, current, and upcoming */}
           {!bookingsLoading && !bookingsError && selected && (
-            <div className="mt-3 pt-3 border-t border-slate-200">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 dark:text-slate-400">
                 All bookings ({allBookingsSorted.length})
               </p>
               {allBookingsSorted.length === 0 ? (
-                <p className="text-sm text-slate-400">No bookings yet for this property.</p>
+                <p className="text-sm text-slate-400 dark:text-slate-500">No bookings yet for this property.</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {allBookingsSorted.map((b) => (
-                    <div key={b.id} className="rounded-xl border border-slate-200 p-3 flex justify-between gap-3">
+                    <div key={b.id} className="rounded-xl border border-slate-200 p-3 flex justify-between gap-3 dark:border-slate-700">
                       <div>
-                        <p className="text-sm text-slate-700">
+                        <p className="text-sm text-slate-700 dark:text-slate-300">
                           {formatBookingDate(b.startDate)} — {b.endDate ? formatBookingDate(b.endDate) : 'Ongoing'}
                         </p>
-                        <p className="text-xs text-slate-500 mt-1">
+                        <p className="text-xs text-slate-500 mt-1 dark:text-slate-400">
                           Renter: {b.renterName ?? (b.renterId != null ? `#${b.renterId}` : '—')}
                           {' '}· Booking #{b.id}
                         </p>
@@ -484,7 +549,7 @@ export default function PropertiesView() {
           )}
         </div>
 
-        <div className="bg-white/95 backdrop-blur rounded-2xl shadow-xl overflow-hidden flex-1 min-h-[40vh]">
+        <div className="bg-white/95 backdrop-blur rounded-2xl shadow-xl overflow-hidden flex-1 min-h-[40vh] dark:bg-slate-900/95 dark:border dark:border-slate-800">
           {isActive && selected && userId === selected.ownerId ? (
             <MapContainer center={[selected.lat, selected.lng]} zoom={15} style={{ height: '100%', width: '100%', minHeight: '40vh' }}>
               <TileLayer
@@ -497,7 +562,7 @@ export default function PropertiesView() {
               </Marker>
             </MapContainer>
           ) : (
-            <div className="w-full h-full min-h-[40vh] flex items-center justify-center text-slate-400">
+            <div className="w-full h-full min-h-[40vh] flex items-center justify-center text-slate-400 dark:text-slate-500">
               {!isActive
                 ? "Map loads when this page is active"
                 : !selected
@@ -507,6 +572,30 @@ export default function PropertiesView() {
           )}
         </div>
       </div>
+
+      {showProfileModal && profile && (
+        <ProfileCompletionModal
+          profile={profile}
+          onClose={() => setShowProfileModal(false)}
+          onSaved={(updated) => {
+            setProfile(updated)
+            setShowProfileModal(false)
+            void Swal.fire({
+              returnFocus: false,
+              icon: 'success',
+              iconColor: '#4a9e4a',
+              title: 'Information saved!',
+              text: 'Your contact details are set — you can now list a property, and renters can reach you.',
+              confirmButtonText: 'Great!',
+              confirmButtonColor: '#4a9e4a',
+              customClass: {
+                popup: 'rounded-2xl! font-sans',
+                title: 'text-lg! font-bold! text-slate-800! dark:text-slate-100!',
+              },
+            })
+          }}
+        />
+      )}
 
       {showAddModal && (
         <AddPropertyModal

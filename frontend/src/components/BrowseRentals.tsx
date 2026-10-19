@@ -7,6 +7,7 @@ import type { Property } from '../data/properties'
 import { fetchAvailableProperties } from '../api/properties'
 import { useAuth } from '../context/AuthContext'
 import BookRentalModal from './BookRentalModal'
+import ContactOwnerModal from './ContactOwnerModal'
 import PropertyDetailsModal from './PropertyDetailsModal'
 import PhotoCarousel from './PhotoCarousel'
 import { bookedSwal } from '../utils/swal'
@@ -58,14 +59,15 @@ export default function BrowseRentals() {
 
   const [bookingProperty, setBookingProperty] = useState<Property | null>(null)
   const [detailsProperty, setDetailsProperty] = useState<Property | null>(null)
+  const [contactProperty, setContactProperty] = useState<Property | null>(null)
 
   return (
     <div className="grid grid-cols-3 gap-6 w-full h-[75vh] max-w-6xl">
-      <div className="col-span-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 overflow-y-auto">
-        <h3 className="text-lg font-bold text-slate-800 mb-3">Rentals</h3>
+      <div className="col-span-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 overflow-y-auto dark:bg-slate-900/95 dark:border dark:border-slate-800">
+        <h3 className="text-lg font-bold text-slate-800 mb-3 dark:text-slate-100">Rentals</h3>
 
-        {loading && <p className="text-sm text-slate-400">Loading properties...</p>}
-        {error && <p className="text-sm text-red-500">Couldn't load properties: {error}</p>}
+        {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading properties...</p>}
+        {error && <p className="text-sm text-red-500 dark:text-red-400">Couldn't load properties: {error}</p>}
 
         <div className="flex flex-col gap-2">
           {properties.map((p) => {
@@ -78,8 +80,8 @@ export default function BrowseRentals() {
                 onClick={() => setSelected(p)}
                 className={`text-left rounded-xl transition-colors cursor-pointer overflow-hidden ${
                   selected?.id === p.id
-                    ? 'bg-blue-100 border-2 border-blue-400'
-                    : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+                    ? 'bg-blue-100 border-2 border-blue-400 dark:bg-blue-500/15 dark:border-blue-400'
+                    : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800'
                 }`}
               >
                 {p.images && p.images.length > 0 && (
@@ -87,9 +89,9 @@ export default function BrowseRentals() {
                 )}
                 <div className="p-3 flex justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-slate-800">{p.lotName}</p>
-                    <p className="text-sm text-slate-500">{p.address}</p>
-                    <p className="text-sm font-semibold text-slate-700">{formatPrice(p.price)}</p>
+                    <p className="font-semibold text-slate-800 dark:text-slate-100">{p.lotName}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{p.address}</p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{formatPrice(p.price)}</p>
                   </div>
                   <div className="flex flex-col gap-1 shrink-0">
                   <button
@@ -104,7 +106,10 @@ export default function BrowseRentals() {
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setContactProperty(p)
+                    }}
                     className="bg-[#4a9e4a] hover:bg-[#3a7e3a] text-white rounded-full px-3 py-1 text-xs font-semibold transition-all"
                   >
                     Contact Owner
@@ -127,7 +132,7 @@ export default function BrowseRentals() {
         </div>
       </div>
 
-      <div className="col-span-2 bg-white/95 backdrop-blur rounded-2xl shadow-xl overflow-hidden">
+      <div className="col-span-2 bg-white/95 backdrop-blur rounded-2xl shadow-xl overflow-hidden dark:bg-slate-900/95 dark:border dark:border-slate-800">
         {isActive && selected ? (
           <MapContainer center={[selected.lat, selected.lng]} zoom={15} style={{ height: '100%', width: '100%' }}>
             <TileLayer
@@ -140,7 +145,7 @@ export default function BrowseRentals() {
             </Marker>
           </MapContainer>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400">
+          <div className="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-500">
             {isActive ? 'Loading map...' : 'Map loads when this page is active'}
           </div>
         )}
@@ -154,6 +159,13 @@ export default function BrowseRentals() {
             setBookingProperty(detailsProperty)
             setDetailsProperty(null)
           }}
+        />
+      )}
+
+      {contactProperty && (
+        <ContactOwnerModal
+          property={contactProperty}
+          onClose={() => setContactProperty(null)}
         />
       )}
 

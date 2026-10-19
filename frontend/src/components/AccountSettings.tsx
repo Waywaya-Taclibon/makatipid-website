@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { API_BASE } from '../api/http'
+import { validatePhone, validateSocial } from '../api/users'
 
 export default function AccountSettings() {
   const { userName, token, login, logout } = useAuth()
@@ -10,11 +11,17 @@ export default function AccountSettings() {
   const [formData, setFormData] = useState({
     name: userName || '',
     email: '',
+    phone: '',
+    facebook: '',
+    instagram: '',
   })
   const [currentPassword, setCurrentPassword] = useState('')
   const [originalEmail, setOriginalEmail] = useState('')
 
   const [loading, setLoading] = useState(false)
+  // Guards Save until the stored details are known: submitting a blank phone
+  // before the profile loads would clear the saved number.
+  const [profileLoaded, setProfileLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
@@ -31,15 +38,22 @@ export default function AccountSettings() {
           const data = await response.json()
           setFormData({
             name: data.name || '',
-            email: data.email || ''
+            email: data.email || '',
+            phone: data.phone || '',
+            facebook: data.facebook || '',
+            instagram: data.instagram || ''
           })
           setOriginalEmail(data.email || '')
+          setProfileLoaded(true)
         } else if (response.status === 401) {
           logout()
-          navigate('/login')
+          navigate('/')
+        } else {
+          setError('Could not load your account details. Please refresh the page.')
         }
       } catch (err) {
         console.error('Failed to load profile:', err)
+        setError('Could not load your account details. Please refresh the page.')
       }
     }
 
@@ -54,6 +68,22 @@ export default function AccountSettings() {
     setError('You must be logged in to update account settings.')
     return
   }
+
+    const phoneIssue = validatePhone(formData.phone)
+    if (phoneIssue) {
+      setError(phoneIssue)
+      return
+    }
+    const facebookIssue = validateSocial(formData.facebook, 'Facebook')
+    if (facebookIssue) {
+      setError(facebookIssue)
+      return
+    }
+    const instagramIssue = validateSocial(formData.instagram, 'Instagram')
+    if (instagramIssue) {
+      setError(instagramIssue)
+      return
+    }
 
     setLoading(true)
     setError(null)
@@ -72,11 +102,12 @@ export default function AccountSettings() {
 
       if (response.status === 401) {
         logout()
-        navigate('/login')
+        navigate('/')
         throw new Error('Session expired. Please log in again.')
       }
       if (response.status === 403) {
-      throw new Error('Session expired or unauthorized. Please log in again.')
+      const body = await response.json().catch(() => null)
+      throw new Error((body && body.message) || 'Current password is incorrect.')
       }
 
       if (!response.ok) {
@@ -105,53 +136,96 @@ export default function AccountSettings() {
 
   const handleLogout = () => {
     logout()
-    navigate('/login')
+    navigate('/')
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-6">
       <div>
-        <h2 className="text-xl font-bold text-slate-800">Account Settings</h2>
-        <p className="text-sm text-slate-500">Update your account details and contact email address.</p>
+        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Account Settings</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Update your account details, contact email address, and how renters can reach you.</p>
       </div>
 
       {/* Notification Banner */}
-      {error && <p className="text-sm font-medium text-red-500">{error}</p>}
-      {success && <p className="text-sm font-medium text-emerald-600">{success}</p>}
+      {error && <p className="text-sm font-medium text-red-500 dark:text-red-400">{error}</p>}
+      {success && <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">{success}</p>}
 
       <div className="flex flex-col gap-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Full Name</label>
           <input
             type="text"
             required
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Email Address</label>
           <input
             type="email"
             required
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+          />
+        </div>
+
+        <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Contact details</h3>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Renters see these when they contact you about a property. Facebook and Instagram are optional.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Phone Number</label>
+          <input
+            type="tel"
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            placeholder="09XX XXX XXXX"
+            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+          />
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Required before you can list a property. Leave blank to remove it.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Facebook</label>
+          <input
+            type="text"
+            value={formData.facebook}
+            onChange={(e) => setFormData({ ...formData, facebook: e.target.value })}
+            placeholder="Profile link or @handle"
+            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Instagram</label>
+          <input
+            type="text"
+            value={formData.instagram}
+            onChange={(e) => setFormData({ ...formData, instagram: e.target.value })}
+            placeholder="Profile link or @handle"
+            className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
           />
         </div>
 
         {formData.email.trim().toLowerCase() !== originalEmail.trim().toLowerCase() && originalEmail !== '' && (
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Current Password (required to change email)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300">Current Password (required to change email)</label>
             <input
               type="password"
               required
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="Enter your current password"
-              className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-xl border border-slate-200 p-3 text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
             />
           </div>
         )}
@@ -160,7 +234,7 @@ export default function AccountSettings() {
       <div className="flex gap-3">
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !profileLoaded}
           className="self-start rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
           {loading ? 'Saving...' : 'Save Changes'}
