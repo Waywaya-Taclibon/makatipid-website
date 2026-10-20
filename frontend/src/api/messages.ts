@@ -42,11 +42,12 @@ export async function fetchConversation(id: number, after?: number): Promise<Con
 export async function sendMessage(
   id: number,
   body: string,
+  clientRequestId?: string,
 ): Promise<{ message: Message; expiresInSeconds: number }> {
   const res = await apiFetch(`/messages/conversations/${id}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({ body, clientRequestId }),
   })
   if (res.status === 401) throw new Error('Your session has expired. Please log in again.')
   if (!res.ok) throw new Error(await errorMessage(res, 'Could not send the message'))

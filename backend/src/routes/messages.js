@@ -67,6 +67,19 @@ async function loadConversation(id, userId) {
   return rows[0] || null;
 }
 
+// Looks up a message by the client-generated retry key. NULL keys are never
+// matched (MySQL's unique index also treats each NULL as distinct).
+async function findMessageByClientRequestId(conversationId, senderId, clientRequestId) {
+  const [rows] = await pool.query(
+    `SELECT id, conversation_id, sender_id, body, UNIX_TIMESTAMP(created_at) * 1000 AS created_at_ms
+     FROM messages
+     WHERE conversation_id = ? AND sender_id = ? AND client_request_id = ?
+     LIMIT 1`,
+    [conversationId, senderId, clientRequestId]
+  );
+  return rows[0] || null;
+}
+
 // All of my chats, most recently active first.
 router.get('/conversations', async (req, res, next) => {
   try {
@@ -191,18 +204,57 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
       return res.status(400).json({ message: `Message must be ${MAX_BODY_LEN} characters or fewer` });
     }
 
+    let clientRequestId = null;
+    if (req.body && req.body.clientRequestId != null) {
+      if (typeof req.body.clientRequestId !== 'string' || req.body.clientRequestId.length > 64) {
+        return res.status(400).json({ message: 'clientRequestId must be a string of 64 characters or fewer' });
+      }
+      clientRequestId = req.body.clientRequestId.trim() || null;
+    }
+
     const [convs] = await pool.query(
-      'SELECT id FROM conversations WHERE id = ? AND (owner_id = ? OR renter_id = ?) AND expires_at > NOW() LIMIT 1',
+      `SELECT id, GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), expires_at)) AS expires_in
+       FROM conversations
+       WHERE id = ? AND (owner_id = ? OR renter_id = ?) AND expires_at > NOW()
+       LIMIT 1`,
       [id, req.user.id, req.user.id]
     );
     if (convs.length === 0) {
       return res.status(404).json({ message: 'This chat has expired or no longer exists.' });
     }
+    const expiresInSeconds = Math.max(0, Number(convs[0].expires_in) || 0);
 
-    const [result] = await pool.query(
-      'INSERT INTO messages (conversation_id, sender_id, body) VALUES (?, ?, ?)',
-      [id, req.user.id, body]
-    );
+    // A retried send carries the same key: return the message we already stored
+    // instead of inserting a second copy.
+    if (clientRequestId) {
+      const existing = await findMessageByClientRequestId(id, req.user.id, clientRequestId);
+      if (existing) {
+        return res.status(200).json({
+          message: messageDto(existing, req.user.id),
+          expiresInSeconds,
+        });
+      }
+    }
+
+    let result;
+    try {
+      [result] = await pool.query(
+        'INSERT INTO messages (conversation_id, sender_id, body, client_request_id) VALUES (?, ?, ?, ?)',
+        [id, req.user.id, body, clientRequestId]
+      );
+    } catch (err) {
+      // A concurrent retry won the race (unique key): return its row.
+      if (clientRequestId && (err.errno === 1062 || err.code === 'ER_DUP_ENTRY')) {
+        const existing = await findMessageByClientRequestId(id, req.user.id, clientRequestId);
+        if (existing) {
+          return res.status(200).json({
+            message: messageDto(existing, req.user.id),
+            expiresInSeconds,
+          });
+        }
+      }
+      throw err;
+    }
     // A new message keeps the chat alive for another 24 hours.
     await pool.query(
       'UPDATE conversations SET last_message_at = NOW(), expires_at = DATE_ADD(NOW(), INTERVAL ? HOUR) WHERE id = ?',

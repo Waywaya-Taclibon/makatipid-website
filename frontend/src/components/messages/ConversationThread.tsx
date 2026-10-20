@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Conversation, Message } from '../../data/messages'
 import { fetchConversation, sendMessage } from '../../api/messages'
 import { useAsyncLock } from '../../hooks/useAsyncLock'
 import Spinner from '../Spinner'
 import { formatChatCountdown, formatMessageTime } from '../../utils/chatTime'
+import { createClientRequestId } from '../../utils/requestId'
 
 interface ConversationThreadProps {
   conversationId: number
@@ -43,9 +44,33 @@ export default function ConversationThread({
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [draft, setDraft] = useState('')
 
+  // Mirrors `draft` so a send can read-and-clear it synchronously. React state
+  // only updates on the next render, which left a window where a second Enter
+  // or click still saw the old text and sent it again.
+  const draftRef = useRef('')
+
+  // Idempotency key for the current draft. Retrying the same text (even after a
+  // lost response) reuses it, so the server returns the original message
+  // instead of storing a second copy. Editing the draft starts a new key.
+  const draftRequestIdRef = useRef<string | null>(null)
+
   const { busy: sending, run: runSend } = useAsyncLock()
   const lastIdRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Appends only messages we don't already have. The 5-second poll and the send
+  // response can both return the same row on a slow connection, which used to
+  // render one message twice; de-duping by id makes that harmless.
+  const appendMessages = useCallback((incoming: Message[]) => {
+    if (incoming.length === 0) return
+    setMessages((prev) => {
+      const seen = new Set(prev.map((m) => m.id))
+      const fresh = incoming.filter((m) => !seen.has(m.id))
+      return fresh.length > 0 ? [...prev, ...fresh] : prev
+    })
+    const newest = incoming.reduce((max, m) => (m.id > max ? m.id : max), lastIdRef.current)
+    if (newest > lastIdRef.current) lastIdRef.current = newest
+  }, [])
 
   // Keep the latest callbacks without re-running the polling effect on every render.
   const onExpiredRef = useRef(onExpired)
@@ -85,8 +110,7 @@ export default function ConversationThread({
       fetchConversation(conversationId, lastIdRef.current)
         .then((data) => {
           if (data.messages.length > 0) {
-            setMessages((prev) => [...prev, ...data.messages])
-            lastIdRef.current = data.messages[data.messages.length - 1].id
+            appendMessages(data.messages)
             onActivityRef.current?.(data.conversation)
           }
           setConversation(data.conversation)
@@ -97,7 +121,7 @@ export default function ConversationThread({
         })
     }, POLL_MS)
     return () => clearInterval(timer)
-  }, [conversationId, serverExpired])
+  }, [conversationId, serverExpired, appendMessages])
 
   // Re-render once a second so the countdown ticks.
   useEffect(() => {
@@ -121,14 +145,23 @@ export default function ConversationThread({
   }, [expired, conversationId])
 
   async function submitMessage() {
-    const body = draft.trim()
-    if (!body || expired || sending) return
+    if (expired) return
     await runSend(async () => {
+      // Read and clear the draft synchronously, before the network call. Any
+      // repeat activation (double Enter, double click, Enter while the button
+      // holds focus) now finds an empty draft — even if React hasn't re-rendered
+      // the input yet — so the same text can't be sent twice.
+      const body = draftRef.current.trim()
+      if (!body) return
+      if (!draftRequestIdRef.current) draftRequestIdRef.current = createClientRequestId()
+      const requestId = draftRequestIdRef.current
+      draftRef.current = ''
+      setDraft('')
+
       try {
-        const { message, expiresInSeconds } = await sendMessage(conversationId, body)
-        setMessages((prev) => [...prev, message])
-        lastIdRef.current = message.id
-        setDraft('')
+        const { message, expiresInSeconds } = await sendMessage(conversationId, body, requestId)
+        draftRequestIdRef.current = null
+        appendMessages([message])
         setError(null)
         setExpiresAtMs(Date.now() + Math.max(0, expiresInSeconds) * 1000)
         if (conversation) {
@@ -141,6 +174,9 @@ export default function ConversationThread({
           })
         }
       } catch (err) {
+        // Restore the text so a failed send isn't lost.
+        draftRef.current = body
+        setDraft(body)
         setError(err instanceof Error ? err.message : 'Could not send the message')
       }
     })
@@ -225,7 +261,12 @@ export default function ConversationThread({
         <div className="flex items-end gap-2">
           <textarea
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              // Any edit is a new send, so the retry key must not carry over.
+              draftRequestIdRef.current = null
+              draftRef.current = e.target.value
+              setDraft(e.target.value)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()

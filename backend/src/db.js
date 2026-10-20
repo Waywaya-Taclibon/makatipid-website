@@ -210,6 +210,22 @@ async function ensurePropertyClientRequestId() {
   }
 }
 
+// Same idempotency guard for messages: a retried send (lost response, double
+// Enter that slipped through the client lock) returns the original row instead
+// of inserting a second copy. Safe to run on every boot.
+async function ensureMessagesClientRequestId() {
+  try {
+    await pool.query('ALTER TABLE messages ADD COLUMN client_request_id VARCHAR(64) NULL');
+  } catch (err) {
+    if (!(err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME'))) throw err;
+  }
+  try {
+    await pool.query('ALTER TABLE messages ADD UNIQUE INDEX uq_messages_sender_client_request (conversation_id, sender_id, client_request_id)');
+  } catch (err) {
+    if (!(err && (err.errno === 1061 || err.code === 'ER_DUP_KEYNAME'))) throw err;
+  }
+}
+
 // Account suspension. Banning sets is_active = 0 and bumps token_version so
 // every existing session dies immediately; the auth middleware re-checks it on
 // each request as well.
@@ -252,4 +268,4 @@ async function ensureAdminAuditLogTable() {
   `);
 }
 
-module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureUserActiveColumn, ensureUserMustChangePasswordColumn, ensureAdminAuditLogTable, ensureAppMetaTable, getAppMeta, setAppMeta, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId };
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureUserActiveColumn, ensureUserMustChangePasswordColumn, ensureAdminAuditLogTable, ensureAppMetaTable, getAppMeta, setAppMeta, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId, ensureMessagesClientRequestId };

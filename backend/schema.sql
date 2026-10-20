@@ -110,10 +110,12 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id INT NOT NULL,
   sender_id INT NOT NULL,
   body TEXT NOT NULL,
+  client_request_id VARCHAR(64) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   read_at TIMESTAMP NULL,
   CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
   CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (id),
+  UNIQUE KEY uq_messages_sender_client_request (conversation_id, sender_id, client_request_id),
   INDEX idx_messages_conversation (conversation_id, id)
 );
 

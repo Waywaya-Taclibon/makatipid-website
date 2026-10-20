@@ -149,7 +149,7 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureUserActiveColumn, ensureUserMustChangePasswordColumn, ensureAdminAuditLogTable, ensureAppMetaTable, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, sweepExpiredConversations } = require('./db');
+  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureUserActiveColumn, ensureUserMustChangePasswordColumn, ensureAdminAuditLogTable, ensureAppMetaTable, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, ensureMessagesClientRequestId, sweepExpiredConversations } = require('./db');
   const { isDemoEnabled, ensureDemoData, resetDemoData, msUntilNextReset, shouldResetOnBoot } = require('./demo');
 
   // Demo data is rebuilt on a fixed 6-hour cycle (00/06/12/18 Manila). Re-arm a
@@ -189,6 +189,7 @@ if (require.main === module) {
     .then(() => ensurePropertyImagesTable())
     .then(() => ensurePropertyClientRequestId())
     .then(() => ensureMessagingTables())
+    .then(() => ensureMessagesClientRequestId())
     // Clear any chats that expired while the server was down.
     .then(() => sweepExpiredConversations())
     // Seed/refresh the demo marketplace (no-op when the demo is disabled).

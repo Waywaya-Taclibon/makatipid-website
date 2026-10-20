@@ -7,18 +7,11 @@ import Spinner from './Spinner'
 import ModalLoadingOverlay from './ModalLoadingOverlay'
 import { emptyPropertyForm, formToInput, type PropertyFormState } from './propertyForm'
 import { useAsyncLock } from '../hooks/useAsyncLock'
+import { createClientRequestId } from '../utils/requestId'
 
 interface AddPropertyModalProps {
   onClose: () => void
   onSubmit: (data: CreatePropertyInput, photos: File[]) => Promise<void>
-}
-
-/** Stable per-add idempotency key so a retried POST cannot create a duplicate. */
-function createClientRequestId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 export default function AddPropertyModal({ onClose, onSubmit }: AddPropertyModalProps) {
