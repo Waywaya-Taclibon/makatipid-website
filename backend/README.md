@@ -33,6 +33,21 @@ The script replaces that account's password with a generated temporary one and
 prints it once. Sign in at `/admin`; the dashboard forces a new password before
 unlocking. Re-running the script is the account-recovery path.
 
+By default the script reads `backend/.env`, which is usually your local
+database. To grant access in the **deployed** database from your machine (no
+Render shell needed), copy the `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and
+`DB_PASSWORD` values from Render → your service → Environment into
+`backend/.env.production.local` (ignored by git via `*.local`), add
+`DB_SSL=true`, then:
+
+```bash
+cd backend
+ENV_FILE=.env.production.local npm run promote-admin -- you@example.com
+```
+
+The script prints the target host and database before changing anything, so you
+can confirm it is pointing at production rather than your laptop.
+
 - Change the admin password later under **Security** in the dashboard.
 - Suspending a user bumps `token_version`, so their existing sessions die.
 - Every mutating action is recorded in `admin_audit_log`.

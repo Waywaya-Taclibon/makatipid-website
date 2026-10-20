@@ -19,7 +19,25 @@
  * Connection details come from backend/.env (the same DB_* vars the API uses).
  */
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const fs = require('fs');
+
+// By default the script targets backend/.env (your local database). To promote
+// an account in the deployed database without touching the local one, point it
+// at a separate env file:
+//
+//   ENV_FILE=.env.production.local npm run promote-admin -- you@example.com
+//
+// dotenv does not override variables already set in the shell, so inline
+// DB_HOST=... overrides work too.
+const explicitEnvFile = process.env.ENV_FILE || process.env.ADMIN_ENV_FILE;
+const envPath = explicitEnvFile
+  ? path.resolve(process.cwd(), explicitEnvFile)
+  : path.join(__dirname, '..', '.env');
+if (explicitEnvFile && !fs.existsSync(envPath)) {
+  console.error(`Env file not found: ${envPath}`);
+  process.exit(1);
+}
+require('dotenv').config({ path: envPath });
 
 const crypto = require('crypto');
 const argon2 = require('argon2');
@@ -51,6 +69,10 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+
+  const dbTarget = `${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}/${process.env.DB_NAME || 'makatipid_db'}`;
+  console.log('');
+  console.log(`  Target database:    ${dbTarget}`);
 
   await ensureUserActiveColumn();
   await ensureUserMustChangePasswordColumn();
