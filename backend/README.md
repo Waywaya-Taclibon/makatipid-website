@@ -56,7 +56,8 @@ can confirm it is pointing at production rather than your laptop.
 ## Showcase data
 
 Seeds six normal owner accounts with two published listings each — no bookings,
-payments, conversations or messages:
+payments, conversations, messages, or photos. Listings start blank so each
+property's images can be uploaded manually afterwards.
 
 ```bash
 cd backend

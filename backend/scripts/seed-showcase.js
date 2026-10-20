@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
  * Populates the marketplace with showcase content: six normal owner accounts,
- * two listings each. No bookings, no payments, no conversations, no messages.
+ * two listings each. No bookings, no payments, no conversations, no messages,
+ * and no photos — upload each property's images afterwards.
  *
  *   npm run seed-showcase
  *   npm run seed-showcase -- --reset
@@ -52,17 +53,8 @@ const passwordFlagIndex = argv.indexOf('--password');
 const PASSWORD_OVERRIDE =
   passwordFlagIndex >= 0 && argv[passwordFlagIndex + 1] ? String(argv[passwordFlagIndex + 1]) : null;
 
-// Photos already shipped in frontend/public/demo-photos. Relative URLs need no
-// Cloudinary account, and the "demo:" public_id prefix tells the property
-// delete route these never reached Cloudinary.
-const PHOTOS = [
-  '/demo-photos/demo-1.jpg',
-  '/demo-photos/demo-2.jpg',
-  '/demo-photos/demo-3.jpg',
-  '/demo-photos/demo-4.jpg',
-  '/demo-photos/demo-5.jpg',
-  '/demo-photos/demo-6.jpg',
-];
+// Listings are seeded without photos on purpose: add each property's images
+// through the normal owner upload flow after the accounts exist.
 
 /** Today's date in Asia/Manila as YYYY-MM-DD, offset by whole days. */
 function manilaDate(offsetDays = 0) {
@@ -430,15 +422,7 @@ async function createContent(conn, prepared) {
       const propertyId = propertyResult.insertId;
       propertyCount += 1;
 
-      // Two photos per listing, dealt from the six bundled demo photos.
-      for (let photoIndex = 0; photoIndex < 2; photoIndex += 1) {
-        const url = PHOTOS[(propertyCount * 2 + photoIndex) % PHOTOS.length];
-        await conn.query(
-          'INSERT INTO property_images (property_id, image_url, public_id, sort_order) VALUES (?, ?, ?, ?)',
-          [propertyId, url, `demo:${url}`, photoIndex]
-        );
-      }
-
+      // No property_images rows here: photos are uploaded per property later.
       listings.push({ id: propertyId, ...seed });
     }
 
@@ -548,7 +532,8 @@ async function main() {
       );
     }
     console.log('');
-    console.log(`  ${created.length} accounts, ${propertyCount} listings, 0 bookings, 0 payments, 0 messages.`);
+    console.log(`  ${created.length} accounts, ${propertyCount} listings, 0 photos, 0 bookings, 0 payments, 0 messages.`);
+    console.log('  Listings were created without images: upload each property\'s photos from the owner dashboard.');
     console.log('  These are normal USER accounts (is_demo = 0), so the demo reset will not touch them.');
     console.log('  Passwords are printed once. Save them if you want to log in as these owners.');
     if (!PASSWORD_OVERRIDE) {
