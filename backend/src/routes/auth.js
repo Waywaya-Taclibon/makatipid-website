@@ -52,7 +52,7 @@ router.post('/login', async (req, res, next) => {
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
-    const [rows] = await pool.query('SELECT id, name, email, password, token_version FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
+    const [rows] = await pool.query('SELECT id, name, email, password, token_version, is_active FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1', [email]);
     if (rows.length === 0) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
@@ -65,6 +65,9 @@ router.post('/login', async (req, res, next) => {
     }
     if (!ok) {
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+    if (!Number(user.is_active)) {
+      return res.status(403).json({ message: 'This account has been suspended.' });
     }
     const token = signToken(user.id, Number(user.token_version) || 0);
     return res.json({ token, name: user.name, id: user.id });

@@ -15,6 +15,29 @@ Health checks: `GET http://localhost:8080/health` -> `OK` (process liveness, no
 database access) and `GET http://localhost:8080/health/db` -> `OK` when the
 database is reachable, `503 DB unavailable` otherwise. Both are public.
 
+## Admin dashboard
+
+The dashboard lives at `/admin` on the frontend and talks to `/api/admin/*`.
+Every admin route requires `role = 'ADMIN'` in the database **and** a JWT with
+`scope = "admin"`, so a normal site session can never reach it. Admin sessions
+last 6 hours, and unauthenticated/non-admin calls get a plain `404`.
+
+Grant access to an email (creates the account if it does not exist):
+
+```bash
+cd backend
+npm run promote-admin -- waywaytaclibon.wt@gmail.com
+```
+
+The script replaces that account's password with a generated temporary one and
+prints it once. Sign in at `/admin`; the dashboard forces a new password before
+unlocking. Re-running the script is the account-recovery path.
+
+- Change the admin password later under **Security** in the dashboard.
+- Suspending a user bumps `token_version`, so their existing sessions die.
+- Every mutating action is recorded in `admin_audit_log`.
+- `must_change_password` and `is_active` are added automatically on boot.
+
 ## API (same as before)
 
 - `POST /api/auth/register`, `POST /api/auth/login` -> `{token, name, id}`

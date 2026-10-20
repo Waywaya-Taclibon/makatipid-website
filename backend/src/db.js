@@ -210,4 +210,46 @@ async function ensurePropertyClientRequestId() {
   }
 }
 
-module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureAppMetaTable, getAppMeta, setAppMeta, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId };
+// Account suspension. Banning sets is_active = 0 and bumps token_version so
+// every existing session dies immediately; the auth middleware re-checks it on
+// each request as well.
+async function ensureUserActiveColumn() {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1');
+  } catch (err) {
+    if (err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME')) return;
+    throw err;
+  }
+}
+
+// Set by scripts/promote-admin.js: the admin must choose a new password before
+// the dashboard unlocks. Login then issues a short-lived "admin_setup" token.
+async function ensureUserMustChangePasswordColumn() {
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0');
+  } catch (err) {
+    if (err && (err.errno === 1060 || err.code === 'ER_DUP_FIELDNAME')) return;
+    throw err;
+  }
+}
+
+// Append-only trail of admin actions. No FK on admin_id on purpose: the log
+// must survive even if the account row is ever removed by hand.
+async function ensureAdminAuditLogTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      admin_id INT NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      target_type VARCHAR(32) NULL,
+      target_id VARCHAR(64) NULL,
+      details TEXT NULL,
+      ip VARCHAR(64) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_admin_audit_created (created_at),
+      INDEX idx_admin_audit_admin (admin_id)
+    )
+  `);
+}
+
+module.exports = { pool, checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureUserActiveColumn, ensureUserMustChangePasswordColumn, ensureAdminAuditLogTable, ensureAppMetaTable, getAppMeta, setAppMeta, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensureMessagingTables, sweepExpiredConversations, ensurePropertyClientRequestId };

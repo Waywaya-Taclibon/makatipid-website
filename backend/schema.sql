@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
   role VARCHAR(50) NOT NULL DEFAULT 'USER',
   token_version INT NOT NULL DEFAULT 0,
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  must_change_password TINYINT(1) NOT NULL DEFAULT 0,
   phone VARCHAR(32) NULL,
   facebook VARCHAR(255) NULL,
   instagram VARCHAR(255) NULL
@@ -113,4 +115,19 @@ CREATE TABLE IF NOT EXISTS messages (
   CONSTRAINT fk_messages_conversation FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE,
   CONSTRAINT fk_messages_sender FOREIGN KEY (sender_id) REFERENCES users (id),
   INDEX idx_messages_conversation (conversation_id, id)
+);
+
+-- Append-only trail of admin actions. No FK on admin_id on purpose: the log
+-- must survive even if the account row is ever removed by hand.
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  admin_id INT NOT NULL,
+  action VARCHAR(64) NOT NULL,
+  target_type VARCHAR(32) NULL,
+  target_id VARCHAR(64) NULL,
+  details TEXT NULL,
+  ip VARCHAR(64) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_admin_audit_created (created_at),
+  INDEX idx_admin_audit_admin (admin_id)
 );

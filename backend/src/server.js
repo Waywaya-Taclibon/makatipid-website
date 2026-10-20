@@ -14,6 +14,7 @@ const propertyImageRoutes = require('./routes/propertyImages');
 const messageRoutes = require('./routes/messages');
 const configRoutes = require('./routes/config');
 const healthRoutes = require('./routes/health');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 app.set('trust proxy', 1); // correct client IPs behind Render/Railway/nginx (rate limiting, logs)
@@ -101,12 +102,28 @@ const messagesSendLimiter = rateLimit({
   skip: (req) => req.method !== 'POST',
   message: { message: 'Too many messages sent. Please wait a moment and try again.' },
 });
+// Admin login gets a much tighter budget than normal auth: five failed attempts
+// per IP per 15 minutes. Successful logins don't count against it.
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { message: 'Too many admin login attempts. Try again in a few minutes.' },
+});
 app.use('/api/auth', authLimiter);
 app.use('/api/payments', paymentsLimiter);
 app.use('/api/properties', propertyCreateLimiter);
 app.use('/api/messages', messagesReadLimiter);
 app.use('/api/messages', messagesSendLimiter);
 app.use('/api', apiLimiter);
+
+// Admin routes sit BEFORE the user auth middleware on purpose. Their own
+// requireAdmin gate answers 404 for missing/invalid/non-admin tokens, and a
+// normal site session (scope-less JWT) must never reach these handlers.
+app.use('/api/admin/login', adminLoginLimiter);
+app.use('/api/admin', adminRoutes);
 
 app.use(authMiddleware);
 app.use('/api/auth', authRoutes);
@@ -132,7 +149,7 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
-  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureAppMetaTable, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, sweepExpiredConversations } = require('./db');
+  const { checkConnection, ensureUserTokenVersionColumn, ensureUserProfileColumns, ensureUserDemoColumn, ensureUserActiveColumn, ensureUserMustChangePasswordColumn, ensureAdminAuditLogTable, ensureAppMetaTable, ensurePaymentsTable, ensurePropertyCoordinatePrecision, ensurePropertyImagesTable, ensurePropertyClientRequestId, ensureMessagingTables, sweepExpiredConversations } = require('./db');
   const { isDemoEnabled, ensureDemoData, resetDemoData, msUntilNextReset, shouldResetOnBoot } = require('./demo');
 
   // Demo data is rebuilt on a fixed 6-hour cycle (00/06/12/18 Manila). Re-arm a
@@ -163,6 +180,9 @@ if (require.main === module) {
     .then(() => ensureUserTokenVersionColumn())
     .then(() => ensureUserProfileColumns())
     .then(() => ensureUserDemoColumn())
+    .then(() => ensureUserActiveColumn())
+    .then(() => ensureUserMustChangePasswordColumn())
+    .then(() => ensureAdminAuditLogTable())
     .then(() => ensureAppMetaTable())
     .then(() => ensurePaymentsTable())
     .then(() => ensurePropertyCoordinatePrecision())
