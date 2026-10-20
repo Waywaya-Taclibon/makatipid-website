@@ -96,25 +96,10 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
   // closing mid-payment must be a deliberate tap on the × button.
 
   // Poll the intent while the QR is displayed; auto-confirm on success.
+  // Demo intents are excluded: they never reach PayMongo, and the tester
+  // finishes the booking explicitly with "Simulate Test Payment".
   useEffect(() => {
-    if (step !== 'payment' || !qrImageUrl || !intentId) return
-    // Demo payments are simulated: the "QR" is decorative, so confirm the
-    // booking automatically after a beat instead of polling PayMongo.
-    if (isDemo) {
-      let demoStopped = false
-      const demoTimer = setTimeout(async () => {
-        try {
-          await confirmDemoBooking(intentId)
-          if (!demoStopped) onSuccess(property)
-        } catch (err) {
-          if (!demoStopped) setError(err instanceof Error ? err.message : 'Demo payment failed')
-        }
-      }, 1600)
-      return () => {
-        demoStopped = true
-        clearTimeout(demoTimer)
-      }
-    }
+    if (step !== 'payment' || !qrImageUrl || !intentId || isDemo) return
     let stopped = false
     const timer = setInterval(async () => {
       if (isStoredTokenExpired()) {
@@ -462,7 +447,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
         <div className="flex flex-col gap-4">
           <div className="bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl p-3 dark:bg-amber-500/10 dark:border-amber-500/40 dark:text-amber-300">
             {isDemo
-              ? 'Demo mode — this is a mock payment. No money moves and nothing is scanned; your booking confirms automatically.'
+              ? 'Demo mode — this is a mock payment. No money moves and nothing is scanned; click Simulate Test Payment to finish.'
               : 'Test mode — no real money moves. Scan the QR with any bank or e-wallet app to pay.'}
           </div>
 
@@ -492,7 +477,7 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                 {isDemo ? (
                   <>
                     This is a <span className="font-bold">demo QR</span> — it isn't linked to any payment
-                    account and can't be charged. Your booking confirms on its own in a moment.
+                    account and can't be charged. Click Simulate Test Payment below to complete the booking.
                   </>
                 ) : (
                   <>
@@ -549,14 +534,14 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
               </div>
               <p className="text-xs text-slate-400 text-center dark:text-slate-500">
                 {isDemo
-                  ? 'Confirming your demo booking automatically…'
+                  ? 'Waiting for you to simulate the payment…'
                   : `Waiting for payment… this checks automatically. QR expires in ~${Math.round(QR_EXPIRY_SECONDS / 60)} minutes.`}
               </p>
             </>
           ) : (
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isDemo
-                ? 'Generate the demo payment below — a mock QR appears and your booking confirms on its own a moment later.'
+                ? 'Generate the demo QR below, then click Simulate Test Payment to finish. Nothing is charged.'
                 : 'Generate a QR Ph code below, then complete it with the Simulate button (never scan it with a real wallet app). Your booking is created automatically once payment succeeds — failed or abandoned payments create nothing.'}
             </p>
           )}
@@ -591,10 +576,10 @@ export default function BookRentalModal({ property, onClose, onSuccess }: BookRe
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                     </svg>
-                    <span>Verifying...</span>
+                    <span>{isDemo ? 'Simulating...' : 'Verifying...'}</span>
                   </>
                 ) : (
-                  isDemo ? 'Confirm demo payment now' : 'Verify (Fallback Only)'
+                  isDemo ? 'Simulate Test Payment' : 'Verify (Fallback Only)'
                 )}
               </button>
             ) : (
