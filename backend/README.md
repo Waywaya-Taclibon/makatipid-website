@@ -11,7 +11,9 @@ npm install
 npm run dev            # or npm start
 ```
 
-Health check: `GET http://localhost:8080/health` -> `OK`.
+Health checks: `GET http://localhost:8080/health` -> `OK` (process liveness, no
+database access) and `GET http://localhost:8080/health/db` -> `OK` when the
+database is reachable, `503 DB unavailable` otherwise. Both are public.
 
 ## API (same as before)
 

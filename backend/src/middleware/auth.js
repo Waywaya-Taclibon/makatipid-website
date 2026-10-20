@@ -26,12 +26,13 @@ function extractBearer(req) {
   return h.slice(7).trim() || null;
 }
 
-// Public routes: /api/auth/**, exact GET property reads, GET /health,
-// and the PayMongo webhook (PayMongo has no JWT; verified by signature instead).
+// Public routes: /api/auth/**, exact GET property reads, the GET /health
+// probes, and the PayMongo webhook (PayMongo has no JWT; verified by signature
+// instead).
 function isPublic(req) {
   if (req.path.startsWith('/api/auth/')) return true;
   if (req.method === 'POST' && req.path === '/api/payments/webhook') return true;
-  if (req.method === 'GET' && req.path === '/health') return true;
+  if (req.method === 'GET' && (req.path === '/health' || req.path === '/health/db')) return true;
   if (req.method === 'GET' && req.path === '/api/config') return true;
   if (req.method !== 'GET') return false;
   if (req.path === '/api/properties' || req.path === '/api/properties/') return true;

@@ -8,6 +8,12 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME || 'makatipid_db',
   waitForConnections: true,
   connectionLimit: 10,
+  // TiDB Cloud kills public-endpoint connections that sit idle for ~340s, and
+  // recommends a max connection lifetime of a few minutes. Recycling idle
+  // sockets ourselves means the pool never hands out one the server already
+  // dropped, which matters now that the process stays up around the clock.
+  maxIdle: 5,
+  idleTimeout: 30000,
   dateStrings: true, // return DATE columns as 'YYYY-MM-DD' strings (matches old LocalDate JSON)
   timezone: '+08:00', // Asia/Manila: TIMESTAMP reads/writes (payments.created_at holds) match app rules
   // Managed hosts (TiDB Cloud, PlanetScale) refuse unencrypted connections.
