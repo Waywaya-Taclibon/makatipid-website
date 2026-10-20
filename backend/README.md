@@ -53,6 +53,34 @@ can confirm it is pointing at production rather than your laptop.
 - Every mutating action is recorded in `admin_audit_log`.
 - `must_change_password` and `is_active` are added automatically on boot.
 
+## Showcase data
+
+Seeds six normal owner accounts with two published listings each — no bookings,
+payments, conversations or messages:
+
+```bash
+cd backend
+npm run seed-showcase
+```
+
+It prints a fresh random password per account once. Pass `--password` to use one
+known password for all six instead:
+
+```bash
+npm run seed-showcase -- --password "ShowcaseTest123!"
+```
+
+Re-running aborts while the seed emails exist. `--reset` deletes and recreates
+them, but refuses to delete a listing that has booking or payment history, and
+refuses to delete an ADMIN account. Everything runs in one transaction.
+
+Seeded accounts are `is_demo = 0`, so the 6-hour demo reset never wipes them.
+To target the deployed database, use the same `ENV_FILE` pattern as above:
+
+```bash
+ENV_FILE=.env.production.local npm run seed-showcase
+```
+
 ## API (same as before)
 
 - `POST /api/auth/register`, `POST /api/auth/login` -> `{token, name, id}`
