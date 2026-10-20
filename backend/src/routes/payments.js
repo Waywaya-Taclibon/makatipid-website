@@ -47,17 +47,18 @@ function expectedAmountCentavos(price, start, end) {
 }
 
 // Active (non-expired) PENDING holds for a property, used to block double-booking
-// while another renter is still at the QR step. The cutoff is computed in the
-// app (not NOW()) so DB/server time-zone differences can't skew the 5 minutes.
-async function findBlockingHold(propertyId, start, end, ignoreIntentId) {
+// while another renter is still at the QR step. A renter's own earlier attempt is
+// ignored: the demo QR now waits for an explicit click (and "Back" is allowed),
+// so re-generating must not fail against the renter's own hold.
+async function findBlockingHold(propertyId, start, end, renterId) {
   const cutoff = toDateTimeString(new Date(Date.now() - HOLD_MINUTES * 60 * 1000));
   const [holds] = await pool.query(
-    `SELECT intent_id, start_date, end_date, created_at FROM payments
+    `SELECT intent_id, renter_id, start_date, end_date, created_at FROM payments
      WHERE property_id = ? AND status = 'PENDING' AND created_at > ?`,
     [propertyId, cutoff]
   );
   return holds.find((h) => {
-    if (ignoreIntentId && h.intent_id === ignoreIntentId) return false;
+    if (renterId != null && Number(h.renter_id) === Number(renterId)) return false;
     return rangesOverlap(start, end, parseDateOnly(h.start_date), parseDateOnly(h.end_date));
   });
 }
@@ -238,7 +239,7 @@ async function prepareBooking(userId, body) {
 
   const conflict = await findBookingConflict(property.id, start, end);
   if (conflict) throw httpError(409, conflictMessage(conflict));
-  const hold = await findBlockingHold(property.id, start, end, null);
+  const hold = await findBlockingHold(property.id, start, end, userId);
   if (hold) throw httpError(409, 'Someone is currently paying for overlapping dates. Please try again in a few minutes.');
 
   return { property, start, end, amountCentavos: expectedAmountCentavos(property.price, start, end) };
