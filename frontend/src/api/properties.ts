@@ -21,14 +21,35 @@ export async function fetchMyProperties(): Promise<Property[]> {
   return res.json()
 }
 
-/** Bookable feed for renters: archived properties are excluded server-side. */
-export async function fetchAvailableProperties(): Promise<Property[]> {
+export interface AvailabilityFilters {
+  /** Matches the address or lot name. */
+  q?: string
+  /** YYYY-MM-DD. `start` and `end` must be supplied together. */
+  start?: string
+  end?: string
+}
+
+/**
+ * Bookable feed for renters: archived properties are excluded server-side.
+ * Omit the filters to get every available listing (the browse default).
+ */
+export async function fetchAvailableProperties(filters: AvailabilityFilters = {}): Promise<Property[]> {
+  const params = new URLSearchParams()
+  const q = filters.q?.trim()
+  if (q) params.set('q', q)
+  if (filters.start && filters.end) {
+    params.set('start', filters.start)
+    params.set('end', filters.end)
+  }
+
   // apiFetch attaches the member token when present: the server only includes
   // owner contact details for signed-in renters, which the Contact Owner modal
   // needs. Anonymous visitors still get the same list, just without contacts.
-  const res = await apiFetch('/properties/available')
+  const query = params.toString()
+  const res = await apiFetch(`/properties/available${query ? `?${query}` : ''}`)
   if (!res.ok) {
-    throw new Error(`Failed to fetch properties: ${res.status}`)
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.message || `Failed to fetch properties: ${res.status}`)
   }
   return res.json()
 }

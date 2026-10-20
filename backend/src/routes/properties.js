@@ -154,16 +154,20 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// The browse feed. With no query string it returns every non-archived listing
+// (the default "show everything" view); the browse filters narrow it by
+// location and by whether the place is free for the requested date window.
 router.get('/available', async (req, res, next) => {
   try {
-    const [rows] = await pool.query(SELECT_ALL);
+    const built = buildSearchWhere(req.query || {});
+    if (built.error) return res.status(400).json({ message: built.error });
+
+    const [rows] = await pool.query(`${SELECT_ALL} WHERE ${built.where}`, built.params);
     const occupied = await occupiedSet();
     const images = await imagesByPropertyIds(rows.map((p) => p.id));
     const includeContact = Boolean(req.user);
     return res.json(
-      rows
-        .filter((p) => !p.archived)
-        .map((p) => toResponse(p, occupied.has(p.id), images.get(p.id), includeContact))
+      rows.map((p) => toResponse(p, occupied.has(p.id), images.get(p.id), includeContact))
     );
   } catch (err) {
     return next(err);

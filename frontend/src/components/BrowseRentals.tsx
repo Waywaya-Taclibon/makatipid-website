@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { Property } from '../data/properties'
-import { fetchAvailableProperties } from '../api/properties'
+import { fetchAddressSuggestions, fetchAvailableProperties } from '../api/properties'
 import { useAuth } from '../context/AuthContext'
 import { useMotion } from '../context/MotionContext'
 import { BASE_MAP_PAN_SECONDS } from '../data/motion'
@@ -12,6 +12,8 @@ import BookRentalModal from './BookRentalModal'
 import ContactOwnerModal from './ContactOwnerModal'
 import PropertyDetailsModal from './PropertyDetailsModal'
 import PhotoCarousel from './PhotoCarousel'
+import { DURATION_OPTIONS } from './search/searchForm'
+import { computeEndDate, getTodayString } from '../utils/dates'
 import { bookedSwal } from '../utils/swal'
 
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -33,36 +35,108 @@ function formatPrice(price: number) {
   return `₱${price.toLocaleString('en-PH')}/mo`
 }
 
+const filterLabel =
+  'text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400'
+const filterInput =
+  'mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500'
+
+interface BrowseOutcome {
+  /** The request this data belongs to, so loading is derived instead of synced. */
+  key: string
+  properties: Property[]
+  error: string | null
+}
+
 export default function BrowseRentals() {
   const { userId } = useAuth()
   const location = useLocation()
   const isActive = location.pathname === '/browse'
 
-  const [properties, setProperties] = useState<Property[]>([])
+  const [outcome, setOutcome] = useState<BrowseOutcome | null>(null)
   const [selected, setSelected] = useState<Property | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+
+  // Browse filters. Everything starts blank, so the feed opens with every
+  // available listing and only narrows once the renter chooses something.
+  const [locationQuery, setLocationQuery] = useState('')
+  const [debouncedLocation, setDebouncedLocation] = useState('')
+  const [moveIn, setMoveIn] = useState('')
+  const [months, setMonths] = useState<number>(DURATION_OPTIONS[0].months)
+  const [suggestions, setSuggestions] = useState<string[]>([])
+
+  // Typing a location shouldn't fire a request on every keystroke.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedLocation(locationQuery.trim()), 300)
+    return () => window.clearTimeout(timer)
+  }, [locationQuery])
+
+  // Address autocomplete drawn from listings that actually exist.
+  useEffect(() => {
+    if (!isActive) return
+
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      fetchAddressSuggestions(locationQuery, controller.signal).then((items) => {
+        if (!controller.signal.aborted) setSuggestions(items)
+      })
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [isActive, locationQuery])
+
+  const requestKey = `${isActive}|${debouncedLocation}|${moveIn}|${months}`
+  // Derived loading: no setState in the effect body, and changing a filter
+  // can't flash the previous (now wrong) results.
+  const loading = isActive && outcome?.key !== requestKey
+  const properties = outcome?.key === requestKey ? outcome.properties : []
+  const error = outcome?.key === requestKey ? outcome.error : null
 
   useEffect(() => {
-    if (!isActive || properties.length > 0) return
+    if (!isActive) return
 
-    // Archived properties are excluded server-side, so renters can't see or book them.
-    fetchAvailableProperties()
+    let cancelled = false
+
+    // The server needs a complete window, so dates are only sent when the
+    // renter picked a move-in date (the stay length supplies the end date).
+    const end = moveIn ? computeEndDate(moveIn, months) : ''
+
+    fetchAvailableProperties({
+      q: debouncedLocation,
+      start: moveIn || undefined,
+      end: end || undefined,
+    })
       .then((data) => {
-        setProperties(data)
-        // Normalize types to prevent string vs number comparison bugs
-        const firstOtherProperty =
-          data.find((p) => Number(p.ownerId) !== Number(userId)) ?? null
-        setSelected(firstOtherProperty)
-        setError(null)
+        if (!cancelled) setOutcome({ key: requestKey, properties: data, error: null })
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [isActive, properties.length, userId])
+      .catch((err) => {
+        if (cancelled) return
+        setOutcome({
+          key: requestKey,
+          properties: [],
+          error: err instanceof Error ? err.message : 'Could not load properties',
+        })
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isActive, requestKey, debouncedLocation, moveIn, months])
 
   const [bookingProperty, setBookingProperty] = useState<Property | null>(null)
   const [detailsProperty, setDetailsProperty] = useState<Property | null>(null)
   const [contactProperty, setContactProperty] = useState<Property | null>(null)
+
+  const hasFilters = locationQuery.trim() !== '' || moveIn !== ''
+  const activeFilterCount = (locationQuery.trim() ? 1 : 0) + (moveIn ? 1 : 0)
+
+  function clearFilters() {
+    setLocationQuery('')
+    setDebouncedLocation('')
+    setMoveIn('')
+    setMonths(DURATION_OPTIONS[0].months)
+  }
 
   // Renters only see other people's listings. Deriving the visible list (and a
   // valid selection) keeps the map from sitting on "Loading map..." forever
@@ -74,15 +148,107 @@ export default function BrowseRentals() {
   return (
     <div className="grid grid-cols-3 gap-6 w-full h-[75vh] max-w-6xl">
       <div className="col-span-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl p-4 overflow-y-auto dark:bg-slate-900/95 dark:border dark:border-slate-800">
-        <h3 className="text-lg font-bold text-slate-800 mb-3 dark:text-slate-100">Rentals</h3>
+        <div className="mb-3 flex items-baseline justify-between gap-2">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Rentals</h3>
+          {!loading && (
+            <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+              {visibleProperties.length} {visibleProperties.length === 1 ? 'listing' : 'listings'}
+            </span>
+          )}
+        </div>
 
-        {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Loading properties...</p>}
+        <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Filter rentals
+              {hasFilters && (
+                <span className="ml-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </p>
+            {hasFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-[11px] font-semibold text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="mt-2">
+            <label className={filterLabel} htmlFor="browse-location">
+              Location
+            </label>
+            <input
+              id="browse-location"
+              type="search"
+              list="browse-location-options"
+              value={locationQuery}
+              onChange={(e) => setLocationQuery(e.target.value)}
+              placeholder="City, barangay, or street"
+              autoComplete="off"
+              className={filterInput}
+            />
+            <datalist id="browse-location-options">
+              {suggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="min-w-0">
+              <label className={filterLabel} htmlFor="browse-movein">
+                Available from
+              </label>
+              <input
+                id="browse-movein"
+                type="date"
+                min={getTodayString()}
+                value={moveIn}
+                onChange={(e) => setMoveIn(e.target.value)}
+                className={filterInput}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className={filterLabel} htmlFor="browse-duration">
+                Stay
+              </label>
+              <select
+                id="browse-duration"
+                value={months}
+                disabled={!moveIn}
+                onChange={(e) => setMonths(Number(e.target.value))}
+                className={filterInput}
+              >
+                {DURATION_OPTIONS.map((option) => (
+                  <option key={option.months} value={option.months}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <p className="mt-2 text-[11px] leading-snug text-slate-400 dark:text-slate-500">
+            Leave location and dates blank to see every listing.
+          </p>
+        </div>
+
+        {loading && properties.length === 0 && (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Loading properties...</p>
+        )}
         {error && <p className="text-sm text-red-500 dark:text-red-400">Couldn't load properties: {error}</p>}
         {!loading && !error && visibleProperties.length === 0 && (
           <p className="text-sm text-slate-400 dark:text-slate-500">
-            {properties.length > 0
-              ? "You've listed all current rentals. New listings from other owners will appear here."
-              : 'No rentals available right now. Check back soon.'}
+            {hasFilters
+              ? 'No rentals match those filters. Try another location or widen the dates.'
+              : properties.length > 0
+                ? "You've listed all current rentals. New listings from other owners will appear here."
+                : 'No rentals available right now. Check back soon.'}
           </p>
         )}
 
@@ -167,9 +333,11 @@ export default function BrowseRentals() {
               : error
               ? 'Map unavailable — rentals could not be loaded.'
               : visibleProperties.length === 0
-              ? properties.length > 0
-                ? "You're viewing your own listings, so there is nothing to show on the map yet."
-                : 'No rentals to show on the map yet. New listings will appear here.'
+              ? hasFilters
+                ? 'No rentals match those filters.'
+                : properties.length > 0
+                  ? "You're viewing your own listings, so there is nothing to show on the map yet."
+                  : 'No rentals to show on the map yet. New listings will appear here.'
               : 'Select a rental to view it on the map'}
           </div>
         )}
